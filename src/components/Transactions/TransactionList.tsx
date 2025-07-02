@@ -1,145 +1,129 @@
-import React, { useState, useEffect } from "react";
-import { format } from "date-fns";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../contexts/AppContext";
-import { saveAs } from "file-saver";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable"; // ✅ Default import
+import React, { useState } from 'react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AppProvider } from './contexts/AppContext';
+import Login from './components/Auth/Login';
+import Header from './components/Layout/Header';
+import Sidebar from './components/Layout/Sidebar';
+import MobileNav from './components/Layout/MobileNav';
+import Dashboard from './components/Dashboard/Dashboard';
+import DayBook from './components/DayBook/DayBook';
+import Parties from './components/Parties/Parties';
+import Orders from './components/Orders/Orders';
+import ChequeManagement from './components/Cheques/ChequeManagement';
+import BillsOCR from './components/Bills/BillsOCR';
+import Reports from './components/Reports/Reports';
+import Approvals from './components/Approvals/Approvals';
+import FirmManagement from './components/Firms/FirmManagement';
+import UserManagement from './components/Users/UserManagement';
+import TransactionList from './components/Transactions/TransactionList'; // ✅ make sure this exists
 
-export default function TransactionList() {
-  const { selectedFirm } = useApp();
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState("all");
+function AppContent() {
+  const { user, userProfile, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  useEffect(() => {
-    if (selectedFirm) fetchTransactions();
-  }, [selectedFirm]);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const fetchTransactions = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("transactions")
-      .select("*, user_profiles(full_name)")
-      .eq("firm_id", selectedFirm?.id)
-      .order("created_at", { ascending: false });
+  if (!user || !userProfile) {
+    return <Login />;
+  }
 
-    if (error) {
-      console.error("Failed to fetch transactions:", error);
-    } else {
-      setTransactions(data || []);
+  const handleGlobalSearch = (query: string) => {
+    setGlobalSearchQuery(query);
+    if (query.trim()) {
+      setActiveTab('parties');
     }
-    setLoading(false);
   };
 
-  const filteredTransactions = transactions.filter((t) => {
-    if (filterType === "all") return true;
-    return t.type === filterType;
-  });
-
-  const handleDownloadCSV = () => {
-    const headers = ["Date", "Type", "Amount", "Status", "Created By"];
-    const rows = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
-      t.type,
-      t.amount,
-      t.status,
-      t.user_profiles?.full_name || "Unknown"
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    saveAs(encodedUri, "transactions.csv");
+  const handleNavigation = (tab: string) => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
   };
 
-  const handleDownloadPDF = () => {
-    const doc = new jsPDF({ orientation: "portrait" });
-    doc.setTextColor(0);
-    doc.setFontSize(12);
-    doc.text("Transactions Report", 14, 14);
-
-    const tableData = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
-      t.type,
-      t.amount,
-      t.status,
-      t.user_profiles?.full_name || "Unknown"
-    ]);
-
-    autoTable({
-      head: [["Date", "Type", "Amount", "Status", "Created By"]],
-      body: tableData,
-      startY: 20,
-      styles: { fillColor: [255, 255, 255], textColor: 0 },
-      headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-    });
-
-    doc.save("transactions.pdf");
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return <Dashboard onNavigate={handleNavigation} />;
+      case 'daybook':
+        return <DayBook />;
+      case 'transactions':
+        return <TransactionList />; // ✅ Added this
+      case 'parties':
+        return <Parties searchQuery={globalSearchQuery} />;
+      case 'orders':
+        return <Orders />;
+      case 'cheques':
+        return <ChequeManagement />;
+      case 'bills':
+        return <BillsOCR />;
+      case 'reports':
+        return <Reports />;
+      case 'approvals':
+        return <Approvals />;
+      case 'firms':
+        return <FirmManagement />;
+      case 'users':
+        return <UserManagement />;
+      default:
+        return <Dashboard onNavigate={handleNavigation} />;
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">All Transactions</h2>
-        <div className="flex space-x-2">
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All</option>
-            <option value="sale">Sales</option>
-            <option value="collection">Collections</option>
-            <option value="payment">Payments</option>
-          </select>
-          <button
-            onClick={handleDownloadCSV}
-            className="px-3 py-1 bg-blue-600 text-white rounded"
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={handleDownloadPDF}
-            className="px-3 py-1 bg-gray-800 text-white rounded"
-          >
-            Download PDF
-          </button>
+    <div className="min-h-screen bg-gray-50">
+      <Header 
+        onGlobalSearch={handleGlobalSearch} 
+        onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        isMobileMenuOpen={isMobileMenuOpen}
+      />
+      
+      <div className="flex">
+        <div className="hidden lg:block">
+          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
+        
+        <MobileNav 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab}
+          isOpen={isMobileMenuOpen}
+          onClose={() => setIsMobileMenuOpen(false)}
+        />
+        
+        <main className="flex-1 min-w-0">
+          <div className="p-3 sm:p-4 lg:p-6">
+            {renderContent()}
+          </div>
+        </main>
       </div>
-      {loading ? (
-        <div className="text-center py-10">Loading...</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-auto border">
-            <thead>
-              <tr className="bg-gray-100 text-left">
-                <th className="px-4 py-2">Date</th>
-                <th className="px-4 py-2">Type</th>
-                <th className="px-4 py-2">Amount</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Created By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTransactions.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-2">
-                    {format(new Date(t.created_at), "dd-MM-yyyy")}
-                  </td>
-                  <td className="px-4 py-2 capitalize">{t.type}</td>
-                  <td className="px-4 py-2">₹{t.amount}</td>
-                  <td className="px-4 py-2 capitalize">{t.status}</td>
-                  <td className="px-4 py-2">
-                    {t.user_profiles?.full_name || "Unknown"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
       )}
     </div>
   );
 }
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </AuthProvider>
+  );
+}
+
+export default App;
