@@ -1,207 +1,147 @@
-import React, { useState, useEffect } from "react";
-import { format } from "date-fns";
-import { supabase } from "../../lib/supabase";
-import { useApp } from "../../contexts/AppContext";
-import { saveAs } from "file-saver";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import React, { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useApp } from '@/contexts/AppContext';
+import { format } from 'date-fns';
+
+interface Transaction {
+  id: string;
+  party_name: string;
+  transaction_date: string;
+  type: 'sale' | 'collection';
+  amount: number;
+  created_by: string;
+  status: string;
+}
 
 export default function TransactionList() {
   const { selectedFirm } = useApp();
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [staffList, setStaffList] = useState([]);
-  const [filterStaff, setFilterStaff] = useState("all");
-
-  useEffect(() => {
-    if (selectedFirm) {
-      fetchTransactions();
-      fetchStaffList();
-    }
-  }, [selectedFirm]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [filtered, setFiltered] = useState<Transaction[]>([]);
+  const [staffFilter, setStaffFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [search, setSearch] = useState('');
 
   const fetchTransactions = async () => {
-    setLoading(true);
-    let query = supabase
-      .from("transactions")
-      .select("*, user_profiles(full_name)")
-      .eq("firm_id", selectedFirm?.id)
-      .order("created_at", { ascending: false });
-
-    if (startDate) query = query.gte("transaction_date", startDate);
-    if (endDate) query = query.lte("transaction_date", endDate);
-
-    const { data, error } = await query;
+    if (!selectedFirm) return;
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(`id, amount, transaction_date, type, status, created_by, parties(name)`)
+      .eq('firm_id', selectedFirm.id)
+      .order('transaction_date', { ascending: false });
 
     if (error) {
-      console.error("Failed to fetch transactions:", error);
+      console.error('Error fetching transactions:', error);
     } else {
-      setTransactions(data || []);
-    }
-    setLoading(false);
-  };
-
-  const fetchStaffList = async () => {
-    const { data, error } = await supabase
-      .from("user_firm_access")
-      .select("user_id, user_profiles(id, full_name)")
-      .eq("firm_id", selectedFirm?.id);
-
-    if (!error) {
-      const staff = data.map((item) => ({
-        id: item.user_profiles?.id || item.user_id,
-        name: item.user_profiles?.full_name || "Unknown",
+      const parsed: Transaction[] = data.map((t) => ({
+        id: t.id,
+        amount: t.amount,
+        transaction_date: t.transaction_date,
+        type: t.type,
+        status: t.status,
+        created_by: t.created_by,
+        party_name: t.parties?.name || 'Unknown',
       }));
-      setStaffList(staff);
+      setTransactions(parsed);
+      setFiltered(parsed);
     }
   };
 
-  const filteredTransactions = transactions.filter((t) => {
-    const matchType = filterType === "all" || t.type === filterType;
-    const matchStatus = filterStatus === "all" || t.status === filterStatus;
-    const matchStaff = filterStaff === "all" || t.created_by === filterStaff;
-    return matchType && matchStatus && matchStaff;
-  });
+  useEffect(() => {
+    fetchTransactions();
+  }, [selectedFirm]);
 
-  const handleDownloadCSV = () => {
-    const headers = ["Date", "Type", "Amount", "Status", "Created By"];
-    const rows = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
+  useEffect(() => {
+    let filtered = transactions;
+    if (staffFilter) filtered = filtered.filter((t) => t.created_by === staffFilter);
+    if (typeFilter) filtered = filtered.filter((t) => t.type === typeFilter);
+    if (dateFrom) filtered = filtered.filter((t) => new Date(t.transaction_date) >= new Date(dateFrom));
+    if (dateTo) filtered = filtered.filter((t) => new Date(t.transaction_date) <= new Date(dateTo));
+    if (search.trim()) filtered = filtered.filter((t) => t.party_name.toLowerCase().includes(search.toLowerCase()));
+    setFiltered(filtered);
+  }, [staffFilter, typeFilter, dateFrom, dateTo, search, transactions]);
+
+  const formatRupees = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
+
+  const exportCSV = () => {
+    const headers = ['Date', 'Party', 'Type', 'Amount', 'Status', 'Created By'];
+    const rows = filtered.map((t) => [
+      format(new Date(t.transaction_date), 'yyyy-MM-dd'),
+      t.party_name,
       t.type,
-      t.amount,
+      (t.amount / 100).toFixed(2),
       t.status,
-      t.user_profiles?.full_name || "Unknown",
+      t.created_by,
     ]);
 
     const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    saveAs(encodedUri, "transactions.csv");
-  };
+      [headers, ...rows].map((row) => row.map((v) => `"${v}"`).join(',')).join('\n');
 
-  const handleDownloadPDF = () => {
-    const doc = new jsPDF({ orientation: "portrait" });
-    doc.setTextColor(0);
-    doc.setFontSize(12);
-    doc.text("Transactions Report", 14, 14);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const fileName = `transactions_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    const link = document.createElement('a');
 
-    const tableData = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
-      t.type,
-      t.amount,
-      t.status,
-      t.user_profiles?.full_name || "Unknown",
-    ]);
-
-    autoTable({
-      head: [["Date", "Type", "Amount", "Status", "Created By"]],
-      body: tableData,
-      startY: 20,
-      styles: { fillColor: [255, 255, 255], textColor: 0 },
-      headStyles: { fillColor: [0, 0, 0], textColor: 255 },
-    });
-
-    doc.save("transactions.pdf");
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">All Transactions</h2>
-        <div className="flex space-x-2">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="border px-2 py-1 rounded"
-          />
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="border px-2 py-1 rounded"
-          />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All Types</option>
-            <option value="sale">Sales</option>
-            <option value="collection">Collections</option>
-            <option value="payment">Payments</option>
-          </select>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <select
-            value={filterStaff}
-            onChange={(e) => setFilterStaff(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All Staff</option>
-            {staffList.map((staff) => (
-              <option key={staff.id} value={staff.id}>{staff.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleDownloadCSV}
-            className="px-3 py-1 bg-blue-600 text-white rounded"
-          >
-            Export CSV
-          </button>
-          <button
-            onClick={handleDownloadPDF}
-            className="px-3 py-1 bg-gray-800 text-white rounded"
-          >
-            Download PDF
-          </button>
-        </div>
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold">Transaction History</h2>
+        <button onClick={exportCSV} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
+          ⬇️ Export CSV
+        </button>
       </div>
-      {loading ? (
-        <div className="text-center py-10">Loading...</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-auto border">
-            <thead>
-              <tr className="bg-gray-100 text-left">
-                <th className="px-4 py-2">Date</th>
-                <th className="px-4 py-2">Type</th>
-                <th className="px-4 py-2">Amount</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Created By</th>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by party" className="border px-3 py-2 rounded w-full" />
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border px-3 py-2 rounded w-full">
+          <option value="">All Types</option>
+          <option value="sale">Sale</option>
+          <option value="collection">Collection</option>
+        </select>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border px-3 py-2 rounded w-full" />
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border px-3 py-2 rounded w-full" />
+        <input type="text" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} placeholder="Created by (User ID)" className="border px-3 py-2 rounded w-full col-span-2" />
+      </div>
+
+      <div className="overflow-x-auto bg-white border rounded-lg">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left px-4 py-2">Date</th>
+              <th className="text-left px-4 py-2">Party</th>
+              <th className="text-left px-4 py-2">Type</th>
+              <th className="text-right px-4 py-2">Amount</th>
+              <th className="text-left px-4 py-2">Status</th>
+              <th className="text-left px-4 py-2">Created By</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((t) => (
+              <tr key={t.id} className="hover:bg-gray-50">
+                <td className="px-4 py-2">{format(new Date(t.transaction_date), 'dd MMM yyyy')}</td>
+                <td className="px-4 py-2">{t.party_name}</td>
+                <td className="px-4 py-2 capitalize">{t.type}</td>
+                <td className="px-4 py-2 text-right">{formatRupees(t.amount)}</td>
+                <td className="px-4 py-2">{t.status}</td>
+                <td className="px-4 py-2">{t.created_by}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredTransactions.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-2">
-                    {format(new Date(t.created_at), "dd-MM-yyyy")}
-                  </td>
-                  <td className="px-4 py-2 capitalize">{t.type}</td>
-                  <td className="px-4 py-2">₹{t.amount}</td>
-                  <td className="px-4 py-2 capitalize">{t.status}</td>
-                  <td className="px-4 py-2">
-                    {t.user_profiles?.full_name || "Unknown"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center text-gray-500 py-4">
+                  No transactions found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
