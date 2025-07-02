@@ -685,7 +685,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
                 <option value="all">All Status</option>
                 <option value="good">Good (≤30 days)</option>
                 <option value="near_limit">Near Limit (31-60 days)</option>
-                <option value="overdue">Overdue (>60 days)</option>
+                <option value="overdue">Overdue (more than 60 days)</option>
               </select>
 
               <select
