@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
@@ -54,25 +55,11 @@ export default function TransactionList() {
 
   useEffect(() => {
     let filtered = transactions;
-
-    if (staffFilter) {
-      filtered = filtered.filter((t) => t.created_by === staffFilter);
-    }
-    if (typeFilter) {
-      filtered = filtered.filter((t) => t.type === typeFilter);
-    }
-    if (dateFrom) {
-      filtered = filtered.filter((t) => new Date(t.transaction_date) >= new Date(dateFrom));
-    }
-    if (dateTo) {
-      filtered = filtered.filter((t) => new Date(t.transaction_date) <= new Date(dateTo));
-    }
-    if (search.trim()) {
-      filtered = filtered.filter((t) =>
-        t.party_name.toLowerCase().includes(search.toLowerCase())
-      );
-    }
-
+    if (staffFilter) filtered = filtered.filter((t) => t.created_by === staffFilter);
+    if (typeFilter) filtered = filtered.filter((t) => t.type === typeFilter);
+    if (dateFrom) filtered = filtered.filter((t) => new Date(t.transaction_date) >= new Date(dateFrom));
+    if (dateTo) filtered = filtered.filter((t) => new Date(t.transaction_date) <= new Date(dateTo));
+    if (search.trim()) filtered = filtered.filter((t) => t.party_name.toLowerCase().includes(search.toLowerCase()));
     setFiltered(filtered);
   }, [staffFilter, typeFilter, dateFrom, dateTo, search, transactions]);
 
@@ -90,9 +77,7 @@ export default function TransactionList() {
     ]);
 
     const csvContent =
-      [headers, ...rows]
-        .map((row) => row.map((v) => `"${v}"`).join(','))
-        .join('\n');
+      [headers, ...rows].map((row) => row.map((v) => `"${v}"`).join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const fileName = `transactions_${format(new Date(), 'yyyy-MM-dd')}.csv`;
@@ -108,54 +93,23 @@ export default function TransactionList() {
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Transaction History</h2>
-        <button
-          onClick={exportCSV}
-          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
-        >
+        <button onClick={exportCSV} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
           ⬇️ Export CSV
         </button>
       </div>
 
-      {/* Filters */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by party"
-          className="border px-3 py-2 rounded w-full"
-        />
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="border px-3 py-2 rounded w-full"
-        >
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by party" className="border px-3 py-2 rounded w-full" />
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border px-3 py-2 rounded w-full">
           <option value="">All Types</option>
           <option value="sale">Sale</option>
           <option value="collection">Collection</option>
         </select>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="border px-3 py-2 rounded w-full"
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="border px-3 py-2 rounded w-full"
-        />
-        <input
-          type="text"
-          value={staffFilter}
-          onChange={(e) => setStaffFilter(e.target.value)}
-          placeholder="Created by (User ID)"
-          className="border px-3 py-2 rounded w-full col-span-2"
-        />
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border px-3 py-2 rounded w-full" />
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border px-3 py-2 rounded w-full" />
+        <input type="text" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} placeholder="Created by (User ID)" className="border px-3 py-2 rounded w-full col-span-2" />
       </div>
 
-      {/* Table */}
       <div className="overflow-x-auto bg-white border rounded-lg">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
