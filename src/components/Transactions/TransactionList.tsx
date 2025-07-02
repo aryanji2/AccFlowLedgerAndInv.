@@ -36,7 +36,7 @@ export default function TransactionList() {
         status,
         created_by,
         parties(name),
-        user_profiles:created_by(name)
+        user_profiles!fk_created_by(name)
       `)
       .eq('firm_id', selectedFirm.id)
       .order('transaction_date', { ascending: false });
@@ -80,7 +80,7 @@ export default function TransactionList() {
       format(new Date(t.transaction_date), 'yyyy-MM-dd'),
       t.party_name,
       t.type,
-      t.amount.toFixed(2), // No division by 100
+      t.amount.toFixed(2),
       t.status,
       t.created_by_name,
     ]);
