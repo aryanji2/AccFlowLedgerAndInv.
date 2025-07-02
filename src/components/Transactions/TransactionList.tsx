@@ -10,7 +10,13 @@ interface Transaction {
   type: 'sale' | 'collection';
   amount: number;
   created_by: string;
+  created_by_name: string;
   status: string;
+}
+
+interface User {
+  id: string;
+  name: string;
 }
 
 export default function TransactionList() {
@@ -22,6 +28,21 @@ export default function TransactionList() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+
+  const fetchUsers = async () => {
+    if (!selectedFirm) return;
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name')
+      .eq('firm_id', selectedFirm.id);
+
+    if (error) {
+      console.error('Error fetching users:', error);
+    } else {
+      setUsers(data);
+    }
+  };
 
   const fetchTransactions = async () => {
     if (!selectedFirm) return;
@@ -41,6 +62,7 @@ export default function TransactionList() {
         type: t.type,
         status: t.status,
         created_by: t.created_by,
+        created_by_name: users.find(u => u.id === t.created_by)?.name || t.created_by,
         party_name: t.parties?.name || 'Unknown',
       }));
       setTransactions(parsed);
@@ -49,8 +71,14 @@ export default function TransactionList() {
   };
 
   useEffect(() => {
-    fetchTransactions();
+    fetchUsers();
   }, [selectedFirm]);
+
+  useEffect(() => {
+    if (users.length > 0) {
+      fetchTransactions();
+    }
+  }, [users, selectedFirm]);
 
   useEffect(() => {
     let filtered = transactions;
@@ -62,7 +90,7 @@ export default function TransactionList() {
     setFiltered(filtered);
   }, [staffFilter, typeFilter, dateFrom, dateTo, search, transactions]);
 
-  const formatRupees = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
+  const formatRupees = (amount: number) => `₹${amount.toFixed(2)}`;
 
   const exportCSV = () => {
     const headers = ['Date', 'Party', 'Type', 'Amount', 'Status', 'Created By'];
@@ -70,9 +98,9 @@ export default function TransactionList() {
       format(new Date(t.transaction_date), 'yyyy-MM-dd'),
       t.party_name,
       t.type,
-      (t.amount / 100).toFixed(2),
+      t.amount.toFixed(2),
       t.status,
-      t.created_by,
+      t.created_by_name,
     ]);
 
     const csvContent =
@@ -106,7 +134,12 @@ export default function TransactionList() {
         </select>
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border px-3 py-2 rounded w-full" />
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border px-3 py-2 rounded w-full" />
-        <input type="text" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} placeholder="Created by (User ID)" className="border px-3 py-2 rounded w-full col-span-2" />
+        <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="border px-3 py-2 rounded w-full col-span-2">
+          <option value="">All Users</option>
+          {users.map(user => (
+            <option key={user.id} value={user.id}>{user.name}</option>
+          ))}
+        </select>
       </div>
 
       <div className="overflow-x-auto bg-white border rounded-lg">
@@ -129,7 +162,7 @@ export default function TransactionList() {
                 <td className="px-4 py-2 capitalize">{t.type}</td>
                 <td className="px-4 py-2 text-right">{formatRupees(t.amount)}</td>
                 <td className="px-4 py-2">{t.status}</td>
-                <td className="px-4 py-2">{t.created_by}</td>
+                <td className="px-4 py-2">{t.created_by_name}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
