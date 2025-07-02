@@ -4,8 +4,6 @@ import { supabase } from "../../lib/supabase";
 import { useApp } from "../../contexts/AppContext";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
-import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable"; // ✅ Default import
 
 export default function TransactionList() {
