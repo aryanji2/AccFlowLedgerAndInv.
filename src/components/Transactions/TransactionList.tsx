@@ -6,7 +6,7 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import autoTable from "jspdf-autotable"; // ✅ Default import
 
 export default function TransactionList() {
   const { selectedFirm } = useApp();
