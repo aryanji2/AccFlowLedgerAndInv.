@@ -288,7 +288,7 @@ export default function DayBook() {
   };
 
   const canApprove = userProfile?.role === 'admin';
-  const canEdit = userProfile?.role === 'admin';
+  const canEdit = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
   const canDelete = userProfile?.role === 'admin';
 
   if (loading && entries.length === 0) {
