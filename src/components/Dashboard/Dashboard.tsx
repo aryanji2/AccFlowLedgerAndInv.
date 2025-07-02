@@ -431,7 +431,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         <div className="flex items-center justify-between mb-4 sm:mb-6">
           <h3 className="text-base sm:text-lg font-semibold text-gray-900">Recent Transactions</h3>
           <button 
-            onClick={() => handleQuickAction('daybook')}
+            onClick={() => handleQuickAction('transactions')}
             className="text-blue-600 hover:text-blue-700 flex items-center space-x-1 text-xs sm:text-sm font-medium"
           >
             <span>View All</span>
