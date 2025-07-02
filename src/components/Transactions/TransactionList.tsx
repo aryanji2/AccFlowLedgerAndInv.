@@ -5,6 +5,8 @@ import { useApp } from "../../contexts/AppContext";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function TransactionList() {
   const { selectedFirm } = useApp();
@@ -68,7 +70,7 @@ export default function TransactionList() {
       t.user_profiles?.full_name || "Unknown"
     ]);
 
-    doc.autoTable({
+    autoTable({
       head: [["Date", "Type", "Amount", "Status", "Created By"]],
       body: tableData,
       startY: 20,
