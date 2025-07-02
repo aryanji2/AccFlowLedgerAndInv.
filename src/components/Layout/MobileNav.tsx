@@ -27,40 +27,41 @@ export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: 
 
   // Define menu items based on user role
   const getMenuItems = () => {
+    const isFieldStaff = userProfile?.role === 'field_staff';
+
     // Base menu items for all users
     const baseItems = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'daybook', label: 'Day Book', icon: BookOpen },
       { id: 'parties', label: 'Parties', icon: Users },
-      { id: 'cheques', label: 'Cheque Management', icon: CreditCard },
+      // ✅ Hide Cheque Management for field_staff
+      !isFieldStaff && { id: 'cheques', label: 'Cheque Management', icon: CreditCard },
       { id: 'orders', label: 'Orders & Inventory', icon: Package },
       { id: 'bills', label: 'Bills & OCR', icon: FileText },
-    ];
-    
+    ].filter(Boolean); // remove falsy entries
+
     // Items for admin and accountant
     const adminAccountantItems = [
       { id: 'reports', label: 'Reports', icon: BarChart3 },
     ];
-    
+
     // Items only for admin
     const adminOnlyItems = [
       { id: 'approvals', label: 'Approvals', icon: CheckCircle },
       { id: 'firms', label: 'Firm Management', icon: Building2 },
       { id: 'users', label: 'User Management', icon: UserCheck },
     ];
-    
+
     let menuItems = [...baseItems];
-    
-    // Add admin/accountant items
+
     if (userProfile?.role === 'admin' || userProfile?.role === 'accountant') {
       menuItems = [...menuItems, ...adminAccountantItems];
     }
-    
-    // Add admin-only items
+
     if (userProfile?.role === 'admin') {
       menuItems = [...menuItems, ...adminOnlyItems];
     }
-    
+
     return menuItems;
   };
 
@@ -115,7 +116,7 @@ export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: 
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
-          
+
           return (
             <button
               key={item.id}
