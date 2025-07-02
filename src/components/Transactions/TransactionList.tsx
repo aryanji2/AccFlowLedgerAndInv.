@@ -22,7 +22,7 @@ export default function TransactionList() {
     setLoading(true);
     const { data, error } = await supabase
       .from("transactions")
-      .select("*, user_profiles(full_name)")
+      .select("*, user_profiles!fk_created_by(full_name)")
       .eq("firm_id", selectedFirm?.id)
       .order("created_at", { ascending: false });
 
