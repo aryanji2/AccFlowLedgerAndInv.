@@ -648,31 +648,28 @@ export default function PartyStatementModal({ isOpen, onClose, party }: PartySta
                 </div>
               )}
 
-             {/* Debtor Days Explanation */}
-<div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-  <div className="flex items-start space-x-3">
-    <Clock className="w-5 h-5 text-gray-500 mt-0.5" />
-    <div>
-      <h4 className="font-medium text-gray-800">About Debtor Days</h4>
-      <p className="text-sm text-gray-700 mt-1">
-        Debtor days represent how long this party has had an outstanding balance. It's calculated from the last payment date or the date of the first unpaid transaction.
-      </p>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-        <div className="flex items-center space-x-1">
-          <div className="w-3 h-3 rounded-full bg-green-500"></div>
-          <span className="text-gray-800">0-30 days: Good</span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-          <span className="text-gray-800">31-60 days: High</span>
-        </div>
-        <div className="flex items-center space-x-1">
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-          <span className="text-gray-800">60+ days: Overdue</span>
+              {/* Debtor Days Explanation */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-start space-x-3">
+                  <Clock className="w-5 h-5 text-blue-500 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-800">Debtor Days Information</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      This party has an average payment period of <span className="font-medium">{party.debtor_days} days</span>.
+                      {party.last_payment_date && (
+                        <span> Last payment was received on {new Date(party.last_payment_date).toLocaleDateString()}.</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Note: Debtor days represent the average number of days this party takes to pay their invoices.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
-  </div>
-</div> 
- );
+  );
 }
