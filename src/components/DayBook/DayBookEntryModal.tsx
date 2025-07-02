@@ -239,7 +239,7 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
           firm_id: selectedFirm.id,
           party_id: formData.partyId || null,
           type: type,
-          amount: parseFloat(formData.amount),
+          amount: Math.round(parseFloat(formData.amount) * 100),
           // All collections now require approval, regardless of payment method
           status: 'pending',
           bill_number: formData.billNumber || null,
