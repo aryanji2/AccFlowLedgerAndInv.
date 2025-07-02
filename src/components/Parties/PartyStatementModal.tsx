@@ -673,4 +673,5 @@ export default function PartyStatementModal({ isOpen, onClose, party }: PartySta
       </div>
     </div>
   </div>
-</div>
+</div> );
+}
