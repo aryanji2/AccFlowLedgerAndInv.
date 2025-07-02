@@ -11,31 +11,20 @@ export default function TransactionList() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [staffList, setStaffList] = useState([]);
-  const [filterStaff, setFilterStaff] = useState("all");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
 
   useEffect(() => {
-    if (selectedFirm) {
-      fetchTransactions();
-      fetchStaffList();
-    }
+    if (selectedFirm) fetchTransactions();
   }, [selectedFirm]);
 
   const fetchTransactions = async () => {
     setLoading(true);
-    let query = supabase
+    const { data, error } = await supabase
       .from("transactions")
       .select("*, user_profiles(full_name)")
       .eq("firm_id", selectedFirm?.id)
       .order("created_at", { ascending: false });
-
-    if (startDate) query = query.gte("transaction_date", startDate);
-    if (endDate) query = query.lte("transaction_date", endDate);
-
-    const { data, error } = await query;
 
     if (error) {
       console.error("Failed to fetch transactions:", error);
@@ -45,26 +34,21 @@ export default function TransactionList() {
     setLoading(false);
   };
 
-  const fetchStaffList = async () => {
-    const { data, error } = await supabase
-      .from("user_firm_access")
-      .select("user_id, user_profiles(id, full_name)")
-      .eq("firm_id", selectedFirm?.id);
-
-    if (!error) {
-      const staff = data.map((item) => ({
-        id: item.user_profiles?.id || item.user_id,
-        name: item.user_profiles?.full_name || "Unknown",
-      }));
-      setStaffList(staff);
-    }
-  };
+  const today = new Date();
+  const defaultStart = new Date("2023-01-01");
 
   const filteredTransactions = transactions.filter((t) => {
-    const matchType = filterType === "all" || t.type === filterType;
-    const matchStatus = filterStatus === "all" || t.status === filterStatus;
-    const matchStaff = filterStaff === "all" || t.created_by === filterStaff;
-    return matchType && matchStatus && matchStaff;
+    const createdAt = new Date(t.created_at);
+    const start = startDate ? new Date(startDate) : endDate ? defaultStart : null;
+    const end = endDate ? new Date(endDate) : startDate ? today : null;
+
+    const matchesDate =
+      (!start || createdAt >= start) &&
+      (!end || createdAt <= end);
+
+    const matchesType = filterType === "all" || t.type === filterType;
+
+    return matchesDate && matchesType;
   });
 
   const handleDownloadCSV = () => {
@@ -109,11 +93,27 @@ export default function TransactionList() {
     doc.save("transactions.pdf");
   };
 
+  const handleClearFilters = () => {
+    setFilterType("all");
+    setStartDate("");
+    setEndDate("");
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-2 sm:space-y-0">
         <h2 className="text-xl font-semibold">All Transactions</h2>
-        <div className="flex space-x-2">
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="border px-2 py-1 rounded"
+          >
+            <option value="all">All</option>
+            <option value="sale">Sales</option>
+            <option value="collection">Collections</option>
+            <option value="payment">Payments</option>
+          </select>
           <input
             type="date"
             value={startDate}
@@ -126,36 +126,12 @@ export default function TransactionList() {
             onChange={(e) => setEndDate(e.target.value)}
             className="border px-2 py-1 rounded"
           />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="border px-2 py-1 rounded"
+          <button
+            onClick={handleClearFilters}
+            className="px-3 py-1 bg-gray-200 text-gray-800 rounded"
           >
-            <option value="all">All Types</option>
-            <option value="sale">Sales</option>
-            <option value="collection">Collections</option>
-            <option value="payment">Payments</option>
-          </select>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <select
-            value={filterStaff}
-            onChange={(e) => setFilterStaff(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="all">All Staff</option>
-            {staffList.map((staff) => (
-              <option key={staff.id} value={staff.id}>{staff.name}</option>
-            ))}
-          </select>
+            Clear Filters
+          </button>
           <button
             onClick={handleDownloadCSV}
             className="px-3 py-1 bg-blue-600 text-white rounded"
@@ -170,8 +146,13 @@ export default function TransactionList() {
           </button>
         </div>
       </div>
+
       {loading ? (
         <div className="text-center py-10">Loading...</div>
+      ) : filteredTransactions.length === 0 ? (
+        <div className="text-center text-gray-500 py-10">
+          No transactions found for the selected filters.
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full table-auto border">
