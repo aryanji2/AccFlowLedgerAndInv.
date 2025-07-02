@@ -9,14 +9,8 @@ interface Transaction {
   transaction_date: string;
   type: 'sale' | 'collection';
   amount: number;
-  created_by: string;
   created_by_name: string;
   status: string;
-}
-
-interface User {
-  id: string;
-  name: string;
 }
 
 export default function TransactionList() {
@@ -28,27 +22,22 @@ export default function TransactionList() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
-  const [users, setUsers] = useState<User[]>([]);
-
-  const fetchUsers = async () => {
-    if (!selectedFirm) return;
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, name')
-      .eq('firm_id', selectedFirm.id);
-
-    if (error) {
-      console.error('Error fetching users:', error);
-    } else {
-      setUsers(data);
-    }
-  };
 
   const fetchTransactions = async () => {
     if (!selectedFirm) return;
+
     const { data, error } = await supabase
       .from('transactions')
-      .select(`id, amount, transaction_date, type, status, created_by, parties(name)`)
+      .select(`
+        id,
+        amount,
+        transaction_date,
+        type,
+        status,
+        created_by,
+        parties(name),
+        user_profiles:created_by(name)
+      `)
       .eq('firm_id', selectedFirm.id)
       .order('transaction_date', { ascending: false });
 
@@ -61,8 +50,7 @@ export default function TransactionList() {
         transaction_date: t.transaction_date,
         type: t.type,
         status: t.status,
-        created_by: t.created_by,
-        created_by_name: users.find(u => u.id === t.created_by)?.name || t.created_by,
+        created_by_name: t.user_profiles?.name || 'Unknown',
         party_name: t.parties?.name || 'Unknown',
       }));
       setTransactions(parsed);
@@ -71,18 +59,12 @@ export default function TransactionList() {
   };
 
   useEffect(() => {
-    fetchUsers();
+    fetchTransactions();
   }, [selectedFirm]);
 
   useEffect(() => {
-    if (users.length > 0) {
-      fetchTransactions();
-    }
-  }, [users, selectedFirm]);
-
-  useEffect(() => {
     let filtered = transactions;
-    if (staffFilter) filtered = filtered.filter((t) => t.created_by === staffFilter);
+    if (staffFilter) filtered = filtered.filter((t) => t.created_by_name.toLowerCase().includes(staffFilter.toLowerCase()));
     if (typeFilter) filtered = filtered.filter((t) => t.type === typeFilter);
     if (dateFrom) filtered = filtered.filter((t) => new Date(t.transaction_date) >= new Date(dateFrom));
     if (dateTo) filtered = filtered.filter((t) => new Date(t.transaction_date) <= new Date(dateTo));
@@ -98,13 +80,14 @@ export default function TransactionList() {
       format(new Date(t.transaction_date), 'yyyy-MM-dd'),
       t.party_name,
       t.type,
-      t.amount.toFixed(2),
+      t.amount.toFixed(2), // No division by 100
       t.status,
       t.created_by_name,
     ]);
 
-    const csvContent =
-      [headers, ...rows].map((row) => row.map((v) => `"${v}"`).join(',')).join('\n');
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((v) => `"${v}"`).join(','))
+      .join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const fileName = `transactions_${format(new Date(), 'yyyy-MM-dd')}.csv`;
@@ -120,26 +103,50 @@ export default function TransactionList() {
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Transaction History</h2>
-        <button onClick={exportCSV} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition">
+        <button
+          onClick={exportCSV}
+          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+        >
           ⬇️ Export CSV
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by party" className="border px-3 py-2 rounded w-full" />
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="border px-3 py-2 rounded w-full">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by party"
+          className="border px-3 py-2 rounded w-full"
+        />
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="border px-3 py-2 rounded w-full"
+        >
           <option value="">All Types</option>
           <option value="sale">Sale</option>
           <option value="collection">Collection</option>
         </select>
-        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border px-3 py-2 rounded w-full" />
-        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border px-3 py-2 rounded w-full" />
-        <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="border px-3 py-2 rounded w-full col-span-2">
-          <option value="">All Users</option>
-          {users.map(user => (
-            <option key={user.id} value={user.id}>{user.name}</option>
-          ))}
-        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="border px-3 py-2 rounded w-full"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="border px-3 py-2 rounded w-full"
+        />
+        <input
+          type="text"
+          value={staffFilter}
+          onChange={(e) => setStaffFilter(e.target.value)}
+          placeholder="Created by (Name)"
+          className="border px-3 py-2 rounded w-full col-span-2"
+        />
       </div>
 
       <div className="overflow-x-auto bg-white border rounded-lg">
