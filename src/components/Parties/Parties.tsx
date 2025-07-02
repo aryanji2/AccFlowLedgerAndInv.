@@ -67,6 +67,49 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     }
   }, [selectedFirm]);
 
+  // Function to calculate current balance and debtor days from transactions
+  const calculatePartyMetrics = async (partyId: string) => {
+    try {
+      // This would typically fetch from transactions table
+      // For now, we'll use the stored balance and debtor_days
+      const { data: transactions, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('party_id', partyId)
+        .order('transaction_date', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching transactions:', error);
+        return { balance: 0, debtor_days: 0 };
+      }
+
+      // Calculate running balance
+      let balance = 0;
+      let lastPaymentDate: Date | null = null;
+
+      transactions?.forEach(transaction => {
+        if (transaction.type === 'debit') {
+          balance += transaction.amount;
+        } else if (transaction.type === 'credit') {
+          balance -= transaction.amount;
+          if (!lastPaymentDate || new Date(transaction.transaction_date) > lastPaymentDate) {
+            lastPaymentDate = new Date(transaction.transaction_date);
+          }
+        }
+      });
+
+      // Calculate debtor days (days since last payment)
+      const debtor_days = lastPaymentDate 
+        ? Math.floor((new Date().getTime() - lastPaymentDate.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      return { balance, debtor_days, lastPaymentDate: lastPaymentDate?.toISOString() };
+    } catch (error) {
+      console.error('Error calculating party metrics:', error);
+      return { balance: 0, debtor_days: 0 };
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -90,7 +133,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
 
       setLocationGroups(locationGroupsData || []);
 
-      // Fetch parties with a simpler query that doesn't rely on foreign key relationships
+      // Fetch parties
       const { data: partiesData, error: partiesError } = await supabase
         .from('parties')
         .select('*')
@@ -103,16 +146,23 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         throw partiesError;
       }
 
-      // If we have location groups, add them to the parties data
-      const partiesWithLocationGroups = partiesData?.map(party => {
-        const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
-        return {
-          ...party,
-          location_group: locationGroup
-        };
-      }) || [];
+      // Calculate real-time metrics for each party
+      const partiesWithMetrics = await Promise.all(
+        (partiesData || []).map(async (party) => {
+          const metrics = await calculatePartyMetrics(party.id);
+          const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
+          
+          return {
+            ...party,
+            balance: metrics.balance,
+            debtor_days: metrics.debtor_days,
+            last_payment_date: metrics.lastPaymentDate || party.last_payment_date,
+            location_group: locationGroup
+          };
+        })
+      );
 
-      setParties(partiesWithLocationGroups);
+      setParties(partiesWithMetrics);
       setIsUsingMockData(false);
 
     } catch (error) {
@@ -135,7 +185,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
       { id: 'loc-4', name: 'Chennai', description: 'Chennai metropolitan area', created_at: new Date().toISOString() },
     ];
     
-    // Mock parties
+    // Mock parties with realistic data
     const mockParties: Party[] = [
       { 
         id: 'party-1', 
@@ -147,7 +197,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         address: '123 Main St, Mumbai',
         location_group_id: 'loc-1',
         location_group: mockLocationGroups[0],
-        balance: 75000,
+        balance: 321286,
         type: 'customer',
         debtor_days: 65,
         last_payment_date: '2023-12-15',
@@ -163,7 +213,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         address: '456 Business Park, Delhi',
         location_group_id: 'loc-2',
         location_group: mockLocationGroups[1],
-        balance: 180000,
+        balance: 116044,
         type: 'customer',
         debtor_days: 45,
         last_payment_date: '2024-01-05',
@@ -179,7 +229,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         address: '789 Tech Park, Bangalore',
         location_group_id: 'loc-3',
         location_group: mockLocationGroups[2],
-        balance: 95000,
+        balance: 225284,
         type: 'customer',
         debtor_days: 28,
         last_payment_date: '2024-01-18',
@@ -195,7 +245,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         address: '101 Market St, Chennai',
         location_group_id: 'loc-4',
         location_group: mockLocationGroups[3],
-        balance: 120000,
+        balance: 666980,
         type: 'customer',
         debtor_days: 52,
         last_payment_date: '2024-01-02',
@@ -245,9 +295,6 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         return;
       }
       
-      // In a real app, we might want to check if the party has any transactions
-      // before allowing deletion
-      
       // Soft delete by setting is_active to false
       const { error } = await supabase
         .from('parties')
@@ -296,8 +343,8 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(Math.abs(amount));
   };
 
@@ -310,200 +357,172 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-green-600 bg-green-50">Good</span>;
   };
 
+  // Enhanced CSV Export Function
+  const exportToCSV = (locationGroupId?: string) => {
+    const exportParties = locationGroupId 
+      ? parties.filter(p => p.location_group_id === locationGroupId)
+      : filteredParties;
+    
+    const locationGroup = locationGroups.find(lg => lg.id === locationGroupId);
+    
+    // CSV headers
+    const headers = [
+      'Party Name',
+      'Contact Person',
+      'Phone',
+      'Email',
+      'Address',
+      'Location Group',
+      'Type',
+      'Current Balance',
+      'Debtor Days',
+      'Last Payment Date',
+      'Created Date'
+    ];
+    
+    // CSV data
+    const csvData = exportParties.map(party => [
+      party.name || '',
+      party.contact_person || '',
+      party.phone || '',
+      party.email || '',
+      party.address || '',
+      party.location_group?.name || '',
+      party.type,
+      party.balance.toFixed(2),
+      party.debtor_days.toString(),
+      party.last_payment_date ? new Date(party.last_payment_date).toLocaleDateString() : '',
+      new Date(party.created_at).toLocaleDateString()
+    ]);
+    
+    // Combine headers and data
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(field => `"${field}"`).join(','))
+      .join('\n');
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    
+    const fileName = locationGroup 
+      ? `parties-${locationGroup.name.toLowerCase().replace(/\s+/g, '-')}.csv`
+      : 'parties-export.csv';
+    link.setAttribute('download', fileName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Enhanced PDF Export Function (matching the attachment style)
   const exportToPDF = (locationGroupId?: string) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     const margin = 20;
     
-    // Filter parties by location if specified
-    const exportParties = locationGroupId 
+    // Filter parties by location if specified, only customers with positive balance
+    const exportParties = (locationGroupId 
       ? parties.filter(p => p.location_group_id === locationGroupId)
-      : parties;
+      : parties)
+      .filter(p => p.type === 'customer' && p.balance > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
     
     const locationGroup = locationGroups.find(lg => lg.id === locationGroupId);
-    const title = locationGroup 
-      ? `Parties Report - ${locationGroup.name}`
-      : 'All Parties Report';
     
-    // Header with logo and title
-    doc.setFillColor(128, 0, 128); // Purple color
-    doc.rect(0, 0, pageWidth, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255); // White text
-    doc.setFontSize(22);
+    // Header - Company Name and Address
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text(title, pageWidth / 2, 20, { align: 'center' });
+    doc.text(selectedFirm?.name?.toUpperCase() || 'COMPANY NAME', pageWidth / 2, 20, { align: 'center' });
     
-    doc.setFontSize(12);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, 30, { align: 'center' });
-    doc.text(`Firm: ${selectedFirm?.name}`, pageWidth / 2, 40, { align: 'center' });
+    doc.text(selectedFirm?.address || 'Company Address', pageWidth / 2, 28, { align: 'center' });
     
-    // Reset text color for the rest of the document
-    doc.setTextColor(0, 0, 0);
-    
-    // Summary section
-    let yPosition = 60;
+    // Title
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('Summary', margin, yPosition);
+    const title = locationGroup ? `Amount Receivable - ${locationGroup.name}` : 'Amount Receivable';
+    doc.text(title, pageWidth / 2, 45, { align: 'center' });
     
-    yPosition += 10;
+    // Date and filter info
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    
-    const totalCustomers = exportParties.filter(p => p.type === 'customer').length;
-    const totalSuppliers = exportParties.filter(p => p.type === 'supplier').length;
-    const totalOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-    const overdueParties = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 60)
-      .length;
-    
-    doc.text(`Total Parties: ${exportParties.length}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Customers: ${totalCustomers}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Suppliers: ${totalSuppliers}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Total Outstanding: ${formatCurrency(totalOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Overdue Parties: ${overdueParties}`, margin, yPosition);
+    doc.text(`As On : ${new Date().toLocaleDateString('en-GB')} All Accounts`, pageWidth / 2, 55, { align: 'center' });
     
     // Table headers
-    yPosition += 20;
-    doc.setFillColor(128, 0, 128); // Purple header
-    doc.rect(margin, yPosition, pageWidth - (margin * 2), 10, 'F');
-    
-    doc.setTextColor(255, 255, 255); // White text for header
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    
-    // Define column positions
-    const nameX = margin + 5;
-    const contactX = margin + 60;
-    const phoneX = margin + 100;
-    const locationX = margin + 140;
-    const balanceX = margin + 180;
-    const daysX = margin + 210;
-    
-    doc.text('Party Name', nameX, yPosition + 7);
-    doc.text('Contact', contactX, yPosition + 7);
-    doc.text('Phone', phoneX, yPosition + 7);
-    doc.text('Location', locationX, yPosition + 7);
-    doc.text('Balance', balanceX, yPosition + 7);
-    doc.text('Days', daysX, yPosition + 7);
-    
-    // Reset text color for data rows
-    doc.setTextColor(0, 0, 0);
-    doc.setFont('helvetica', 'normal');
-    
-    // Table data
-    yPosition += 15;
-    
-    // Alternate row colors
-    let isEvenRow = false;
-    
-    exportParties.forEach((party) => {
-      // Check if we need a new page
-      if (yPosition > pageHeight - 30) {
-        doc.addPage();
-        yPosition = 20;
-      }
-      
-      // Add alternating row background
-      if (isEvenRow) {
-        doc.setFillColor(245, 245, 245);
-        doc.rect(margin, yPosition - 5, pageWidth - (margin * 2), 10, 'F');
-      }
-      isEvenRow = !isEvenRow;
-      
-      // Truncate long text
-      const partyName = party.name.length > 25 ? party.name.substring(0, 22) + '...' : party.name;
-      const contactName = party.contact_person?.length > 15 ? party.contact_person.substring(0, 12) + '...' : (party.contact_person || 'N/A');
-      const locationName = party.location_group?.name || 'N/A';
-      
-      doc.text(partyName, nameX, yPosition);
-      doc.text(contactName, contactX, yPosition);
-      doc.text(party.phone || 'N/A', phoneX, yPosition);
-      doc.text(locationName, locationX, yPosition);
-      
-      // Set balance color based on value
-      if (party.balance > 0) {
-        doc.setTextColor(192, 57, 43); // Red for positive balance (customer owes)
-      } else if (party.balance < 0) {
-        doc.setTextColor(39, 174, 96); // Green for negative balance (we owe)
-      } else {
-        doc.setTextColor(0, 0, 0); // Black for zero balance
-      }
-      
-      // Right-align balance
-      const balanceText = party.balance >= 0 
-        ? formatCurrency(party.balance) 
-        : `(${formatCurrency(Math.abs(party.balance))})`;
-      doc.text(balanceText, balanceX + 30, yPosition, { align: 'right' });
-      
-      // Set debtor days color based on value
-      if (party.debtor_days > 60) {
-        doc.setTextColor(192, 57, 43); // Red for overdue
-      } else if (party.debtor_days > 30) {
-        doc.setTextColor(243, 156, 18); // Yellow/Orange for high
-      } else {
-        doc.setTextColor(39, 174, 96); // Green for good
-      }
-      
-      // Right-align debtor days
-      doc.text(party.debtor_days.toString(), daysX + 10, yPosition, { align: 'right' });
-      
-      // Reset text color
-      doc.setTextColor(0, 0, 0);
-      
-      yPosition += 10;
-    });
-    
-    // Summary
-    yPosition += 10;
+    let yPosition = 70;
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
-    doc.text('Outstanding Summary', margin, yPosition);
+    doc.text('Account', margin, yPosition);
+    doc.text('Balance', pageWidth - margin - 40, yPosition, { align: 'right' });
+    
+    // Underline for headers
+    doc.line(margin, yPosition + 2, pageWidth - margin, yPosition + 2);
     
     yPosition += 10;
+    
+    // Table data
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     
-    // Create a summary table for outstanding amounts by debtor days
-    const goodOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days <= 30 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-      
-    const highOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 30 && p.debtor_days <= 60 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-      
-    const overdueOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 60 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
+    let totalBalance = 0;
     
-    doc.text(`0-30 days (Good): ${formatCurrency(goodOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`31-60 days (High): ${formatCurrency(highOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`60+ days (Overdue): ${formatCurrency(overdueOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Total Outstanding: ${formatCurrency(totalOutstanding)}`, margin, yPosition);
+    exportParties.forEach((party, index) => {
+      // Check if we need a new page
+      if (yPosition > pageHeight - 40) {
+        doc.addPage();
+        yPosition = 30;
+        
+        // Repeat headers on new page
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Account', margin, yPosition);
+        doc.text('Balance', pageWidth - margin - 40, yPosition, { align: 'right' });
+        doc.line(margin, yPosition + 2, pageWidth - margin, yPosition + 2);
+        yPosition += 10;
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+      }
+      
+      // Party name with location if available
+      const partyName = party.location_group?.name 
+        ? `${party.name}, ${party.location_group.name.toUpperCase()}`
+        : party.name;
+      
+      doc.text(partyName, margin, yPosition);
+      
+      // Balance (formatted as in the original)
+      const balanceText = new Intl.NumberFormat('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(party.balance);
+      
+      doc.text(balanceText, pageWidth - margin - 40, yPosition, { align: 'right' });
+      
+      totalBalance += party.balance;
+      yPosition += 6;
+    });
     
-    // Footer
-    const footerPosition = pageHeight - 20;
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Generated on ${new Date().toLocaleString()} | AccFlow Business Management System`, pageWidth / 2, footerPosition, { align: 'center' });
+    // Total line
+    yPosition += 5;
+    doc.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 8;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total', margin, yPosition);
+    const totalText = new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(totalBalance);
+    doc.text(totalText, pageWidth - margin - 40, yPosition, { align: 'right' });
     
     // Save the PDF
     const fileName = locationGroup 
-      ? `parties-${locationGroup.name.toLowerCase().replace(/\s+/g, '-')}.pdf`
-      : 'all-parties.pdf';
+      ? `amount-receivable-${locationGroup.name.toLowerCase().replace(/\s+/g, '-')}.pdf`
+      : 'amount-receivable.pdf';
     doc.save(fileName);
   };
 
@@ -661,12 +680,12 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
               >
                 <option value="all">All Status</option>
                 <option value="good">Good (≤30 days)</option>
                 <option value="near_limit">Near Limit (31-60 days)</option>
-                <option value="overdue">{'Overdue (>60 days)'}</option>
+                <option value="overdue">Overdue (>60 days)</option>
               </select>
 
               <select
@@ -692,7 +711,15 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
                 className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs sm:text-sm"
               >
                 <Download className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>Export All</span>
+                <span>Export PDF</span>
+              </button>
+              
+              <button
+                onClick={() => exportToCSV()}
+                className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-white text-purple-600 border border-purple-600 rounded-lg hover:bg-purple-50 transition-colors text-xs sm:text-sm"
+              >
+                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span>Export CSV</span>
               </button>
               
               {filterLocation !== 'all' && (
