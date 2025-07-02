@@ -15,7 +15,7 @@ import Reports from './components/Reports/Reports';
 import Approvals from './components/Approvals/Approvals';
 import FirmManagement from './components/Firms/FirmManagement';
 import UserManagement from './components/Users/UserManagement';
-
+import TransactionList from './components/Transactions/TransactionList'; // ✅ make sure this exists
 
 function AppContent() {
   const { user, userProfile, loading } = useAuth();
@@ -40,7 +40,6 @@ function AppContent() {
 
   const handleGlobalSearch = (query: string) => {
     setGlobalSearchQuery(query);
-    // If there's a search query, navigate to parties to show search results
     if (query.trim()) {
       setActiveTab('parties');
     }
@@ -57,6 +56,8 @@ function AppContent() {
         return <Dashboard onNavigate={handleNavigation} />;
       case 'daybook':
         return <DayBook />;
+      case 'transactions':
+        return <TransactionList />; // ✅ Added this
       case 'parties':
         return <Parties searchQuery={globalSearchQuery} />;
       case 'orders':
@@ -87,12 +88,10 @@ function AppContent() {
       />
       
       <div className="flex">
-        {/* Desktop Sidebar */}
         <div className="hidden lg:block">
           <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
         
-        {/* Mobile/Tablet Sidebar */}
         <MobileNav 
           activeTab={activeTab} 
           setActiveTab={setActiveTab}
@@ -100,7 +99,6 @@ function AppContent() {
           onClose={() => setIsMobileMenuOpen(false)}
         />
         
-        {/* Main Content */}
         <main className="flex-1 min-w-0">
           <div className="p-3 sm:p-4 lg:p-6">
             {renderContent()}
@@ -108,7 +106,6 @@ function AppContent() {
         </main>
       </div>
       
-      {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
