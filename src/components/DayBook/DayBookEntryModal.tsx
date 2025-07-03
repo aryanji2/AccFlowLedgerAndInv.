@@ -135,7 +135,7 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
         .from('parties')
         .select('*')
         .eq('firm_id', selectedFirm.id);
-      
+        .eq('is_active', true);
       
       if (error) {
         console.error('Error fetching parties:', error);
