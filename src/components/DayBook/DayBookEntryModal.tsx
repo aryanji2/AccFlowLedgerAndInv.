@@ -134,7 +134,7 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
       const { data, error } = await supabase
         .from('parties')
         .select('*')
-        .eq('firm_id', selectedFirm.id);
+        .eq('firm_id', selectedFirm.id)
         .eq('is_active', true);
       
       if (error) {
