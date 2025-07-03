@@ -17,6 +17,7 @@ interface PendingApproval {
   submitted_by: string;
   submitted_by_name: string;
   submitted_at: string;
+  transaction_date?: string;
   details?: any;
 }
 
@@ -95,6 +96,7 @@ export default function Approvals() {
           submitted_by: transaction.created_by,
           submitted_by_name: transaction.user_profiles?.full_name || 'Unknown User',
           submitted_at: transaction.created_at,
+          transaction_date: transaction.transaction_date
         };
       }) || [];
 
@@ -123,6 +125,7 @@ export default function Approvals() {
         submitted_by: 'field-1',
         submitted_by_name: 'staff@company.com',
         submitted_at: '2024-01-14T05:30:00Z',
+        transaction_date: '2024-01-14'
       },
       {
         id: 'app-2',
@@ -136,6 +139,7 @@ export default function Approvals() {
         submitted_by: 'field-1',
         submitted_by_name: 'staff@company.com',
         submitted_at: '2024-01-13T05:30:00Z',
+        transaction_date: '2024-01-13'
       },
       {
         id: 'app-3',
@@ -150,6 +154,7 @@ export default function Approvals() {
         submitted_by: 'field-1',
         submitted_by_name: 'staff@company.com',
         submitted_at: '2024-01-12T05:30:00Z',
+        transaction_date: '2024-01-12'
       },
       {
         id: 'app-4',
@@ -163,6 +168,7 @@ export default function Approvals() {
         submitted_by: 'field-1',
         submitted_by_name: 'staff@company.com',
         submitted_at: '2024-01-11T05:30:00Z',
+        transaction_date: '2024-01-11'
       },
     ];
 
@@ -217,6 +223,15 @@ export default function Approvals() {
     }).format(amount);
   };
 
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = date.toLocaleString('default', { month: 'long' });
+    const year = date.getFullYear();
+    return `${day}${month} ${year}`;
+  };
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'sale': return <Receipt className="w-4 h-4" />;
@@ -233,6 +248,16 @@ export default function Approvals() {
       case 'payment': return 'bg-purple-50 text-purple-600';
       default: return 'bg-gray-50 text-gray-600';
     }
+  };
+
+  const getDescriptionWithDate = (approval: PendingApproval) => {
+    if (!approval.transaction_date) return approval.description;
+    
+    const formattedDate = formatDate(approval.transaction_date);
+    if (approval.type === 'sale' || approval.type === 'collection') {
+      return `${approval.description} (${formattedDate})`;
+    }
+    return approval.description;
   };
 
   const isUrgent = (submittedAt: string) => {
@@ -382,12 +407,14 @@ export default function Approvals() {
                       </div>
                     </div>
                     
-                    <div className="text-xs sm:text-sm text-gray-600 mb-2 line-clamp-2">{approval.description}</div>
+                    <div className="text-xs sm:text-sm text-gray-600 mb-2 line-clamp-2">
+                      {getDescriptionWithDate(approval)}
+                    </div>
                     
                     <div className="space-y-1 sm:space-y-0 sm:flex sm:items-center sm:space-x-4 text-xs text-gray-500">
                       <div className="flex items-center space-x-1">
                         <Clock className="w-3 h-3" />
-                        <span>{new Date(approval.submitted_at).toLocaleDateString()} {new Date(approval.submitted_at).toLocaleTimeString()}</span>
+                        <span>{formatDate(approval.submitted_at)} {new Date(approval.submitted_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                       </div>
                       <div className="flex items-center space-x-1">
                         <User className="w-3 h-3" />
