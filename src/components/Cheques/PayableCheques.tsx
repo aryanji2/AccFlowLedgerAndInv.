@@ -148,6 +148,35 @@ export default function PayableCheques() {
     return new Date(dueDate) < new Date() && status === 'upcoming';
   };
 
+  const getDaysUntilDue = (dueDate: string) => {
+    const today = new Date();
+    const due = new Date(dueDate);
+    const timeDiff = due.getTime() - today.getTime();
+    return Math.ceil(timeDiff / (1000 * 3600 * 24));
+  };
+
+  const isDueWithinThreeDays = (dueDate: string, status: string) => {
+    if (status !== 'upcoming') return false;
+    const daysUntilDue = getDaysUntilDue(dueDate);
+    return daysUntilDue <= 3 && daysUntilDue >= 0;
+  };
+
+  const isDueTomorrow = (dueDate: string, status: string) => {
+    if (status !== 'upcoming') return false;
+    const daysUntilDue = getDaysUntilDue(dueDate);
+    return daysUntilDue === 1;
+  };
+
+  const formatDateLong = (dateString: string) => {
+    const date = new Date(dateString);
+    const options: Intl.DateTimeFormatOptions = {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    };
+    return date.toLocaleDateString('en-GB', options);
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -194,6 +223,8 @@ export default function PayableCheques() {
             className={`p-4 bg-white rounded-lg shadow-sm border-l-4 transition-colors ${
               isOverdue(cheque.due_date, cheque.status)
                 ? 'border-red-500 bg-red-50'
+                : isDueWithinThreeDays(cheque.due_date, cheque.status)
+                ? 'border-yellow-500 bg-yellow-50'
                 : cheque.status === 'paid'
                 ? 'border-green-500'
                 : 'border-blue-500'
@@ -202,16 +233,23 @@ export default function PayableCheques() {
             <div className="flex flex-col md:flex-row md:items-center md:justify-between">
               <div className="flex items-center space-x-4 mb-3 md:mb-0">
                 <div className={`p-2 rounded-full ${
-                  isOverdue(cheque.due_date, cheque.status) ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                  isOverdue(cheque.due_date, cheque.status) 
+                    ? 'bg-red-100 text-red-600' 
+                    : isDueWithinThreeDays(cheque.due_date, cheque.status)
+                    ? 'bg-yellow-100 text-yellow-600'
+                    : 'bg-blue-100 text-blue-600'
                 }`}>
                   <PiggyBank className="w-5 h-5" />
                 </div>
                 <div>
                   <p className="font-semibold text-gray-800">{cheque.party_name}</p>
                   <p className="text-sm text-gray-500">
-                    Due on: {new Date(cheque.due_date).toLocaleDateString()}
+                    Due on: {formatDateLong(cheque.due_date)}
                     {isOverdue(cheque.due_date, cheque.status) && (
                       <span className="ml-2 text-xs font-bold text-red-600">(Overdue)</span>
+                    )}
+                    {isDueTomorrow(cheque.due_date, cheque.status) && (
+                      <span className="ml-2 text-xs font-bold text-yellow-600">(Due Tomorrow)</span>
                     )}
                   </p>
                 </div>
@@ -227,7 +265,7 @@ export default function PayableCheques() {
                 {cheque.status === 'paid' && (
                   <div className="text-sm text-green-600 font-semibold flex items-center space-x-2">
                     <CheckCircle className="w-5 h-5" />
-                    <span>Paid on {new Date(cheque.paid_date!).toLocaleDateString()}</span>
+                    <span>Paid on {formatDateLong(cheque.paid_date!)}</span>
                   </div>
                 )}
                 {cheque.status === 'cancelled' && (
