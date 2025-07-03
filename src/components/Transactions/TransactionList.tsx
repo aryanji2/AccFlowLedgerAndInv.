@@ -51,7 +51,7 @@ export default function TransactionList() {
   const handleDownloadCSV = () => {
     const headers = ["Date", "Type", "Party", "Amount", "Status", "Created By"];
     const rows = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
+      format(new Date(t.transaction_date), "dd-MM-yyyy"),
       t.type,
       t.parties?.name || "Unknown",
       t.amount,
