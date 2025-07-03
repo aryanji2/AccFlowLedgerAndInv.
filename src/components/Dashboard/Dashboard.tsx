@@ -451,14 +451,18 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                     {transaction.party_name}
                   </div>
                   <div className="text-xs sm:text-sm text-gray-500 truncate">
-                    <span className="capitalize">
-                      {transaction.type}({new Date(t.transaction_date).toLocaleDateString('en-IN', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    })})</span>
-                    {transaction.bill_number && ` - ${transaction.bill_number}`}
-                  </div>
+  <span className="capitalize">
+    {transaction.type} (
+      {new Date(transaction.created_at).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })}
+    )
+  </span>
+  {transaction.bill_number && ` - ${transaction.bill_number}`}
+</div>
+
                   <div className="text-xs text-gray-400">
                     {format(new Date(transaction.created_at), 'dd MMM yyyy, hh:mm a')}
                   </div>
