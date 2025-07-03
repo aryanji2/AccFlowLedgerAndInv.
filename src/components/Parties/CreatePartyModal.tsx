@@ -53,7 +53,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         address: editingParty.address || '',
         locationGroupId: editingParty.location_group_id || '',
         type: editingParty.type || 'customer',
-        openingBalance: editingParty.balance ? editingParty.balance.toString() : '',
+        openingBalance: editingParty.balance ? editingParty.balance.toString() : '0',
       });
     } else {
       setFormData({
@@ -64,7 +64,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         address: '',
         locationGroupId: locationGroups.length > 0 ? locationGroups[0].id : '',
         type: 'customer',
-        openingBalance: '',
+        openingBalance: '0',
       });
     }
     setErrors({});
@@ -113,6 +113,11 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
     if (!formData.locationGroupId && !newLocationGroupName) {
       newErrors.locationGroupId = 'Please select a location group';
     }
+
+    // Validate opening balance is a valid number
+    if (formData.openingBalance && isNaN(parseFloat(formData.openingBalance))) {
+      newErrors.openingBalance = 'Please enter a valid number';
+    }
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -120,7 +125,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFirm) return;
+    if (!selectedFirm || !userProfile) return;
 
     if (!validateForm()) {
       return;
@@ -132,13 +137,12 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
       // Create new location group if needed
       let locationGroupId = formData.locationGroupId;
       if (newLocationGroupName && !formData.locationGroupId) {
-        // Create a new location group
         const { data: newLocationGroup, error: locationGroupError } = await supabase
           .from('location_groups')
           .insert({
             firm_id: selectedFirm.id,
             name: newLocationGroupName,
-            created_by: userProfile?.id
+            created_by: userProfile.id
           })
           .select()
           .single();
@@ -149,41 +153,102 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         }
         
         locationGroupId = newLocationGroup.id;
-        
-        // Update location groups list
         setLocationGroups(prev => [...prev, newLocationGroup]);
       }
       
-      const partyData = {
-        firm_id: selectedFirm.id,
-        name: formData.name,
-        contact_person: formData.contactPerson,
-        phone: formData.phone,
-        email: formData.email,
-        address: formData.address,
-        location_group_id: locationGroupId,
-        type: formData.type,
-        balance: parseFloat(formData.openingBalance) || 0,
-        debtor_days: 0, // New parties start with 0 debtor days
-        created_by: userProfile?.id,
-      };
+      const openingBalance = parseFloat(formData.openingBalance) || 0;
 
       if (editingParty) {
         // Update existing party
-        const { error } = await supabase
+        const { error: partyError } = await supabase
           .from('parties')
-          .update(partyData)
+          .update({
+            firm_id: selectedFirm.id,
+            name: formData.name,
+            contact_person: formData.contactPerson,
+            phone: formData.phone,
+            email: formData.email,
+            address: formData.address,
+            location_group_id: locationGroupId,
+            type: formData.type,
+            balance: openingBalance,
+            created_by: userProfile.id,
+          })
           .eq('id', editingParty.id);
           
-        if (error) throw error;
+        if (partyError) throw partyError;
+
+        // Handle opening balance transaction
+        const { data: obTxn } = await supabase
+          .from('transactions')
+          .select('id, amount')
+          .eq('party_id', editingParty.id)
+          .eq('firm_id', selectedFirm.id)
+          .eq('type', 'opening_balance')
+          .eq('status', 'approved')
+          .single();
+
+        if (obTxn) {
+          if (openingBalance === 0) {
+            // Delete opening balance transaction if balance is now zero
+            await supabase.from('transactions').delete().eq('id', obTxn.id);
+          } else if (obTxn.amount !== Math.abs(openingBalance)) {
+            // Update transaction if amount changed
+            await supabase.from('transactions')
+              .update({ 
+                amount: Math.abs(openingBalance),
+                transaction_date: new Date().toISOString().split('T')[0]
+              })
+              .eq('id', obTxn.id);
+          }
+        } else if (openingBalance !== 0) {
+          // Create new opening balance transaction if needed
+          await supabase.from('transactions').insert({
+            firm_id: selectedFirm.id,
+            party_id: editingParty.id,
+            type: 'opening_balance',
+            amount: Math.abs(openingBalance),
+            status: 'approved',
+            transaction_date: new Date().toISOString().split('T')[0],
+            created_by: userProfile.id,
+          });
+        }
       } else {
         // Create new party
-        const { error } = await supabase
+        const { data: newParty, error: partyError } = await supabase
           .from('parties')
-          .insert(partyData);
+          .insert({
+            firm_id: selectedFirm.id,
+            name: formData.name,
+            contact_person: formData.contactPerson,
+            phone: formData.phone,
+            email: formData.email,
+            address: formData.address,
+            location_group_id: locationGroupId,
+            type: formData.type,
+            balance: openingBalance,
+            debtor_days: 0,
+            created_by: userProfile.id,
+          })
+          .select()
+          .single();
           
-        if (error) throw error;
+        if (partyError || !newParty) throw partyError;
+
+        // Create opening balance transaction if needed
+        if (openingBalance !== 0) {
+          await supabase.from('transactions').insert({
+            firm_id: selectedFirm.id,
+            party_id: newParty.id,
+            type: 'opening_balance',
+            amount: Math.abs(openingBalance),
+            status: 'approved',
+            transaction_date: new Date().toISOString().split('T')[0],
+            created_by: userProfile.id,
+          });
+        }
       }
+
       onSuccess();
       onClose();
       setFormData({
@@ -194,7 +259,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         address: '',
         locationGroupId: locationGroups.length > 0 ? locationGroups[0].id : '',
         type: 'customer',
-        openingBalance: '',
+        openingBalance: '0',
       });
       setNewLocationGroupName('');
     } catch (error) {
@@ -215,14 +280,14 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
     }
 
     try {
-      if (!selectedFirm) return;
+      if (!selectedFirm || !userProfile) return;
       
       const { data, error } = await supabase
         .from('location_groups')
         .insert({
           firm_id: selectedFirm.id,
           name: newLocationGroupName.trim(),
-          created_by: userProfile?.id
+          created_by: userProfile.id
         })
         .select()
         .single();
@@ -482,9 +547,12 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
               value={formData.openingBalance}
               onChange={(e) => setFormData({ ...formData, openingBalance: e.target.value })}
               placeholder="0"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className={`w-full px-3 py-2 border ${errors.openingBalance ? 'border-red-300 bg-red-50' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent`}
               step="0.01"
             />
+            {errors.openingBalance && (
+              <p className="mt-1 text-sm text-red-600">{errors.openingBalance}</p>
+            )}
             <p className="text-xs text-gray-500 mt-1">
               Positive for receivables (customer owes you), negative for payables (you owe supplier)
             </p>
@@ -498,9 +566,11 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
                 <div>
                   <p className="font-medium text-red-800">Please fix the following errors:</p>
                   <ul className="mt-1 text-sm text-red-700 list-disc list-inside">
-                    {Object.values(errors).map((error, index) => (
-                      <li key={index}>{error}</li>
-                    ))}
+                    {Object.values(errors)
+                      .filter(error => error) // Only show non-empty errors
+                      .map((error, index) => (
+                        <li key={index}>{error}</li>
+                      ))}
                   </ul>
                 </div>
               </div>
