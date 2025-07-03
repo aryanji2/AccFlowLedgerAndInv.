@@ -38,7 +38,7 @@ interface Transaction {
   amount: number;
   status: 'pending' | 'approved' | 'rejected';
   bill_number?: string;
-  transaction_date: string;
+  created_at: string;
   party_name: string;
 }
 
@@ -87,13 +87,13 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           amount,
           status,
           bill_number,
-          transaction_date,
+          created_at,
           parties (
             name
           )
         `)
         .eq('firm_id', selectedFirm.id)
-        .order('transaction_date', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(10);
       
       if (transactionsError) {
@@ -156,7 +156,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         amount: t.amount,
         status: t.status,
         bill_number: t.bill_number,
-        transaction_date: t.transaction_date,
+        created_at: t.created_at,
         party_name: t.parties?.name || 'Unknown Party'
       })) || [];
       
@@ -194,7 +194,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         amount: 25000,
         status: 'approved',
         bill_number: 'INV-001',
-        transaction_date: new Date().toISOString(),
+        created_at: new Date().toISOString(),
         party_name: 'ABC Retailers'
       },
       {
@@ -202,7 +202,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         type: 'collection',
         amount: 18000,
         status: 'pending',
-        transaction_date: new Date().toISOString(),
+        created_at: new Date().toISOString(),
         party_name: 'XYZ Distributors'
       },
       {
@@ -211,7 +211,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         amount: 15000,
         status: 'approved',
         bill_number: 'INV-002',
-        transaction_date: new Date().toISOString(),
+        created_at: new Date().toISOString(),
         party_name: 'Quick Mart'
       },
       {
@@ -219,7 +219,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         type: 'collection',
         amount: 22000,
         status: 'approved',
-        transaction_date: new Date(Date.now() - 86400000).toISOString(),
+        created_at: new Date(Date.now() - 86400000).toISOString(),
         party_name: 'Super Store'
       },
       {
@@ -228,7 +228,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         amount: 35000,
         status: 'pending',
         bill_number: 'INV-003',
-        transaction_date: new Date(Date.now() - 86400000 * 2).toISOString(),
+        created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
         party_name: 'Tech Solutions'
       }
     ];
@@ -451,19 +451,20 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                     {transaction.party_name}
                   </div>
                   <div className="text-xs sm:text-sm text-gray-500 truncate">
-                    <span className="capitalize">
-                      {transaction.type} (
-                        {new Date(transaction.transaction_date).toLocaleDateString('en-IN', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      )
-                    </span>
-                    {transaction.bill_number && ` - ${transaction.bill_number}`}
-                  </div>
+  <span className="capitalize">
+    {transaction.type} (
+      {new Date(transaction.created_at).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })}
+    )
+  </span>
+  {transaction.bill_number && ` - ${transaction.bill_number}`}
+</div>
+
                   <div className="text-xs text-gray-400">
-                    {format(new Date(transaction.transaction_date), 'dd MMM yyyy, hh:mm a')}
+                    {format(new Date(transaction.created_at), 'dd MMM yyyy, hh:mm a')}
                   </div>
                 </div>
               </div>
@@ -576,7 +577,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 Collection rate this month
               </div>
             </div>
-
             {/* Outstanding Summary */}
             <div className="p-4 bg-gradient-to-r from-orange-50 to-orange-100 rounded-lg">
               <div className="flex items-center justify-between mb-3">
