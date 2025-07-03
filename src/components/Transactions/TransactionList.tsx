@@ -73,7 +73,7 @@ export default function TransactionList() {
     doc.text("Transactions Report", 14, 14);
 
     const tableData = filteredTransactions.map((t) => [
-      format(new Date(t.created_at), "dd-MM-yyyy"),
+      format(new Date(t.transaction_date), "dd-MM-yyyy"),
       t.type,
       t.parties?.name || "Unknown",
       t.amount,
@@ -169,7 +169,7 @@ export default function TransactionList() {
               {filteredTransactions.map((t) => (
                 <tr key={t.id} className="border-t">
                   <td className="px-4 py-2">
-                    {format(new Date(t.created_at), "dd-MM-yyyy")}
+                    {format(new Date(t.transaction_date), "dd-MM-yyyy")}
                   </td>
                   <td className="px-4 py-2 capitalize">{t.type}</td>
                   <td className="px-4 py-2">{t.parties?.name || "Unknown"}</td>
