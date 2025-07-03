@@ -22,7 +22,7 @@ export default function TransactionList() {
     setLoading(true);
     const { data, error } = await supabase
       .from("transactions")
-      .select("*, user_profiles!fk_created_by(full_name)")
+      .select("*, user_profiles!fk_created_by(full_name), parties(name)")
       .eq("firm_id", selectedFirm?.id)
       .order("created_at", { ascending: false });
 
@@ -42,20 +42,18 @@ export default function TransactionList() {
     const start = startDate ? new Date(startDate) : endDate ? defaultStart : null;
     const end = endDate ? new Date(endDate) : startDate ? today : null;
 
-    const matchesDate =
-      (!start || createdAt >= start) &&
-      (!end || createdAt <= end);
-
+    const matchesDate = (!start || createdAt >= start) && (!end || createdAt <= end);
     const matchesType = filterType === "all" || t.type === filterType;
 
     return matchesDate && matchesType;
   });
 
   const handleDownloadCSV = () => {
-    const headers = ["Date", "Type", "Amount", "Status", "Created By"];
+    const headers = ["Date", "Type", "Party", "Amount", "Status", "Created By"];
     const rows = filteredTransactions.map((t) => [
       format(new Date(t.created_at), "dd-MM-yyyy"),
       t.type,
+      t.parties?.name || "Unknown",
       t.amount,
       t.status,
       t.user_profiles?.full_name || "Unknown",
@@ -77,13 +75,14 @@ export default function TransactionList() {
     const tableData = filteredTransactions.map((t) => [
       format(new Date(t.created_at), "dd-MM-yyyy"),
       t.type,
+      t.parties?.name || "Unknown",
       t.amount,
       t.status,
       t.user_profiles?.full_name || "Unknown",
     ]);
 
     autoTable({
-      head: [["Date", "Type", "Amount", "Status", "Created By"]],
+      head: [["Date", "Type", "Party", "Amount", "Status", "Created By"]],
       body: tableData,
       startY: 20,
       styles: { fillColor: [255, 255, 255], textColor: 0 },
@@ -160,6 +159,7 @@ export default function TransactionList() {
               <tr className="bg-gray-100 text-left">
                 <th className="px-4 py-2">Date</th>
                 <th className="px-4 py-2">Type</th>
+                <th className="px-4 py-2">Party</th>
                 <th className="px-4 py-2">Amount</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">Created By</th>
@@ -172,6 +172,7 @@ export default function TransactionList() {
                     {format(new Date(t.created_at), "dd-MM-yyyy")}
                   </td>
                   <td className="px-4 py-2 capitalize">{t.type}</td>
+                  <td className="px-4 py-2">{t.parties?.name || "Unknown"}</td>
                   <td className="px-4 py-2">₹{t.amount}</td>
                   <td className="px-4 py-2 capitalize">{t.status}</td>
                   <td className="px-4 py-2">
