@@ -208,7 +208,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }: PartySta
       setLoading(false);
     }
   };
-  
+
   const exportStatementToPDF = () => {
     if (!statement) return;
 
@@ -453,7 +453,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }: PartySta
               </button>
             </div>
           </div>
-          
+
           {/* Date Range */}
           <div className="grid grid-cols-2 gap-4 mt-4">
             <div>
