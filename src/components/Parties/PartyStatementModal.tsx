@@ -1,57 +1,39 @@
+// --- START OF PartyStatementModal.tsx ---
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Download, Calendar, TrendingDown, Receipt, Clock } from 'lucide-react';
+import { X, FileText, Download, Calendar, TrendingUp, TrendingDown, Receipt, User, AlertCircle, Clock } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { supabase } from '../../lib/supabase';
 import jsPDF from 'jspdf';
 
-interface Party {
-  id: string;
-  firm_id: string;
-  name: string;
-  contact_person: string;
-  phone: string;
-  email: string;
-  address: string;
-  balance: number;
-  type: 'customer' | 'supplier';
-  debtor_days: number;
-  last_payment_date?: string;
+function formatDateFull(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
-interface Transaction {
-  id: string;
-  date: string;
-  type: 'sale' | 'collection' | 'opening_balance';
-  description: string;
-  debit: number;
-  credit: number;
-  balance: number;
-  reference?: string;
-  payment_method?: string;
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.abs(amount));
 }
 
-interface PartyStatement {
-  party: Party;
-  transactions: Transaction[];
-  summary: {
-    opening_balance: number;
-    closing_balance: number;
-    total_debits: number;
-    total_credits: number;
-  };
+function formatCurrencyPlain(amount: number) {
+  return new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.abs(amount));
 }
 
-interface PartyStatementModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  party: Party;
-}
-
-export default function PartyStatementModal({ isOpen, onClose, party }: PartyStatementModalProps) {
+export default function PartyStatementModal({ isOpen, onClose, party }) {
   const { selectedFirm } = useApp();
-  const [statement, setStatement] = useState<PartyStatement | null>(null);
+  const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null);
   const [dateRange, setDateRange] = useState({
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     to: new Date().toISOString().split('T')[0],
@@ -68,173 +50,221 @@ export default function PartyStatementModal({ isOpen, onClose, party }: PartySta
       setLoading(true);
       setError(null);
 
-      // Transactions within the date range
-      const { data: transactionsData, error: txError } = await supabase
+      const { data: txns, error } = await supabase
         .from('transactions')
         .select('*')
         .eq('party_id', party.id)
-        .eq('firm_id', selectedFirm?.id)
+        .eq('firm_id', selectedFirm.id)
         .eq('status', 'approved')
         .gte('transaction_date', dateRange.from)
         .lte('transaction_date', dateRange.to)
         .order('transaction_date', { ascending: true });
 
-      if (txError) throw txError;
+      if (error) throw error;
 
-      // Transactions before the date range for opening balance
-      const { data: priorTxs, error: priorError } = await supabase
+      const { data: prior, error: priorErr } = await supabase
         .from('transactions')
         .select('*')
         .eq('party_id', party.id)
-        .eq('firm_id', selectedFirm?.id)
+        .eq('firm_id', selectedFirm.id)
         .eq('status', 'approved')
         .lt('transaction_date', dateRange.from);
 
-      if (priorError) throw priorError;
+      if (priorErr) throw priorErr;
 
       let openingBalance = 0;
-      for (const tx of priorTxs || []) {
-        if (tx.type === 'sale') openingBalance += tx.amount;
-        else if (tx.type === 'collection') openingBalance -= tx.amount;
-      }
+      prior.forEach(t => {
+        if (t.type === 'sale') openingBalance += t.amount;
+        else if (t.type === 'collection') openingBalance -= t.amount;
+      });
 
-      const transactions: Transaction[] = [];
+      let runningBalance = openingBalance;
+      const result = [];
 
       if (openingBalance !== 0) {
-        transactions.push({
-          id: 'opening-balance',
+        result.push({
+          id: 'ob',
           date: dateRange.from,
           type: 'opening_balance',
           description: 'Opening Balance',
           debit: openingBalance > 0 ? openingBalance : 0,
-          credit: openingBalance < 0 ? -openingBalance : 0,
-          balance: openingBalance,
-          reference: 'OB',
+          credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+          balance: runningBalance,
         });
       }
 
-      let runningBalance = openingBalance;
-      for (const tx of transactionsData || []) {
-        if (tx.type === 'sale') {
-          runningBalance += tx.amount;
-          transactions.push({
-            id: tx.id,
-            date: tx.transaction_date,
-            type: 'sale',
-            description: `Sale - ${tx.bill_number || 'No Bill'}`,
-            debit: tx.amount,
-            credit: 0,
-            balance: runningBalance,
-            reference: tx.bill_number,
-            payment_method: tx.payment_method,
-          });
-        } else if (tx.type === 'collection') {
-          runningBalance -= tx.amount;
-          transactions.push({
-            id: tx.id,
-            date: tx.transaction_date,
-            type: 'collection',
-            description: `Payment - ${tx.payment_method || 'Unknown'}${tx.notes ? ` - ${tx.notes}` : ''}`,
-            debit: 0,
-            credit: tx.amount,
-            balance: runningBalance,
-            reference: tx.bill_number,
-            payment_method: tx.payment_method,
-          });
-        }
-      }
+      txns.forEach(t => {
+        let debit = 0;
+        let credit = 0;
 
-      const totalDebits = transactions
-        .filter(t => t.type !== 'opening_balance')
-        .reduce((sum, t) => sum + t.debit, 0);
-      const totalCredits = transactions
-        .filter(t => t.type !== 'opening_balance')
-        .reduce((sum, t) => sum + t.credit, 0);
+        if (t.type === 'sale') {
+          debit = t.amount;
+          runningBalance += debit;
+        } else if (t.type === 'collection') {
+          credit = t.amount;
+          runningBalance -= credit;
+        }
+
+        result.push({
+          id: t.id,
+          date: t.transaction_date,
+          type: t.type,
+          description:
+            t.type === 'sale'
+              ? `Sale - ${t.bill_number || 'No Bill'}`
+              : `Payment - ${t.payment_method || 'Unknown'}${t.notes ? ` - ${t.notes}` : ''}`,
+          debit,
+          credit,
+          balance: runningBalance,
+          reference: t.bill_number,
+          payment_method: t.payment_method,
+        });
+      });
+
+      const totalDebits = result.filter(r => r.type !== 'opening_balance').reduce((sum, r) => sum + r.debit, 0);
+      const totalCredits = result.filter(r => r.type !== 'opening_balance').reduce((sum, r) => sum + r.credit, 0);
 
       setStatement({
         party,
-        transactions,
+        transactions: result,
         summary: {
           opening_balance: openingBalance,
           closing_balance: runningBalance,
           total_debits: totalDebits,
           total_credits: totalCredits,
-        },
+        }
       });
     } catch (err) {
       console.error(err);
-      setError('Failed to load statement.');
+      setError('Failed to fetch statement');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0,
-    }).format(Math.abs(amount));
+  const exportToPDF = () => {
+    if (!statement) return;
 
-  const getBalanceText = (bal: number) =>
-    bal >= 0 ? `${formatCurrency(bal)} DR` : `${formatCurrency(-bal)} CR`;
+    const doc = new jsPDF();
+    const margin = 15;
+    let y = margin;
+
+    doc.setFontSize(18);
+    doc.text('Account Statement', 105, y, { align: 'center' });
+
+    y += 10;
+    doc.setFontSize(12);
+    doc.text(selectedFirm?.name || 'Firm', 105, y, { align: 'center' });
+
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`From: ${formatDateFull(dateRange.from)} To: ${formatDateFull(dateRange.to)}`, 105, y, { align: 'center' });
+
+    y += 12;
+    doc.setFontSize(11);
+    doc.text(`Party: ${party.name}`, margin, y);
+    y += 6;
+    doc.text(`Contact: ${party.contact_person || 'N/A'}`, margin, y);
+    y += 6;
+    doc.text(`Phone: ${party.phone || 'N/A'}`, margin, y);
+    y += 6;
+    doc.text(`Email: ${party.email || 'N/A'}`, margin, y);
+
+    y += 10;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Opening Balance: ${formatCurrency(statement.summary.opening_balance)}`, margin, y);
+    y += 6;
+    doc.text(`Closing Balance: ${formatCurrency(statement.summary.closing_balance)}`, margin, y);
+    y += 6;
+    doc.text(`Total Debits: ${formatCurrency(statement.summary.total_debits)}`, margin, y);
+    y += 6;
+    doc.text(`Total Credits: ${formatCurrency(statement.summary.total_credits)}`, margin, y);
+
+    y += 10;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date', margin, y);
+    doc.text('Desc', margin + 35, y);
+    doc.text('DR', margin + 100, y);
+    doc.text('CR', margin + 120, y);
+    doc.text('Bal', margin + 140, y);
+
+    doc.setFont('helvetica', 'normal');
+    y += 5;
+
+    statement.transactions.forEach(trx => {
+      if (y > 280) {
+        doc.addPage();
+        y = margin;
+      }
+
+      doc.text(formatDateFull(trx.date), margin, y);
+      doc.text(trx.description.slice(0, 40), margin + 35, y);
+      if (trx.debit > 0) doc.text(formatCurrencyPlain(trx.debit), margin + 100, y);
+      if (trx.credit > 0) doc.text(formatCurrencyPlain(trx.credit), margin + 120, y);
+      doc.text(formatCurrencyPlain(trx.balance), margin + 140, y);
+      y += 6;
+    });
+
+    doc.save(`${party.name.replace(/\s+/g, '_')}_statement.pdf`);
+  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="p-4 flex justify-between items-center border-b bg-blue-600 text-white">
-          <h2 className="text-lg font-semibold">{party.name} Statement</h2>
-          <button onClick={onClose}>
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
+          <div className="text-lg font-semibold">{party.name} - Account Statement</div>
+          <div className="flex space-x-2">
+            <button onClick={exportToPDF} className="bg-white text-blue-700 px-3 py-1 rounded">Export PDF</button>
+            <button onClick={onClose}><X /></button>
+          </div>
         </div>
 
-        <div className="p-4 overflow-y-auto flex-1">
-          {loading ? (
-            <div className="text-center">Loading...</div>
-          ) : error ? (
-            <div className="text-center text-red-500">{error}</div>
-          ) : statement ? (
-            <>
-              <div className="mb-4 grid grid-cols-2 gap-4 text-sm">
-                <div><strong>Opening Balance:</strong> {getBalanceText(statement.summary.opening_balance)}</div>
-                <div><strong>Closing Balance:</strong> {getBalanceText(statement.summary.closing_balance)}</div>
-                <div><strong>Total Sales:</strong> {formatCurrency(statement.summary.total_debits)}</div>
-                <div><strong>Total Collections:</strong> {formatCurrency(statement.summary.total_credits)}</div>
-              </div>
+        <div className="p-4 bg-gray-50 flex gap-4">
+          <div>
+            <label className="text-xs text-gray-600 block">From</label>
+            <input type="date" value={dateRange.from} onChange={e => setDateRange({ ...dateRange, from: e.target.value })} className="text-sm px-2 py-1 border rounded" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600 block">To</label>
+            <input type="date" value={dateRange.to} onChange={e => setDateRange({ ...dateRange, to: e.target.value })} className="text-sm px-2 py-1 border rounded" />
+          </div>
+        </div>
 
-              <div className="overflow-x-auto border rounded-lg">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-gray-100 text-gray-600">
-                    <tr>
-                      <th className="p-2 text-left">Date</th>
-                      <th className="p-2 text-left">Description</th>
-                      <th className="p-2 text-right">Debit</th>
-                      <th className="p-2 text-right">Credit</th>
-                      <th className="p-2 text-right">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {statement.transactions.map((t) => (
-                      <tr key={t.id} className="border-t">
-                        <td className="p-2">{new Date(t.date).toLocaleDateString()}</td>
-                        <td className="p-2">{t.description}</td>
-                        <td className="p-2 text-right text-red-600">{t.debit ? formatCurrency(t.debit) : '-'}</td>
-                        <td className="p-2 text-right text-green-600">{t.credit ? formatCurrency(t.credit) : '-'}</td>
-                        <td className={`p-2 text-right font-semibold ${t.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          {getBalanceText(t.balance)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          ) : null}
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div>Loading...</div>
+          ) : error ? (
+            <div className="text-red-500">{error}</div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="text-left p-2">Date</th>
+                  <th className="text-left p-2">Description</th>
+                  <th className="text-right p-2">Debit</th>
+                  <th className="text-right p-2">Credit</th>
+                  <th className="text-right p-2">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statement.transactions.map(trx => (
+                  <tr key={trx.id} className="border-t">
+                    <td className="p-2">{formatDateFull(trx.date)}</td>
+                    <td className="p-2">{trx.description}</td>
+                    <td className="p-2 text-right">{trx.debit > 0 ? formatCurrency(trx.debit) : ''}</td>
+                    <td className="p-2 text-right">{trx.credit > 0 ? formatCurrency(trx.credit) : ''}</td>
+                    <td className="p-2 text-right">{formatCurrency(trx.balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
   );
 }
+// --- END OF PartyStatementModal.tsx ---
