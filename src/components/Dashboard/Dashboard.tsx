@@ -452,7 +452,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                   </div>
                   <div className="text-xs sm:text-sm text-gray-500 truncate">
                     <span className="capitalize">
-                      {transaction.type}({new Date(transaction.created_at).toLocaleDateString('en-IN', {
+                      {transaction.type}({new Date(t.transaction_date).toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
