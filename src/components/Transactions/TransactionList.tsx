@@ -38,7 +38,7 @@ export default function TransactionList() {
   const defaultStart = new Date("2023-01-01");
 
   const filteredTransactions = transactions.filter((t) => {
-    const createdAt = new Date(t.created_at);
+    const createdAt = new Date(ttransaction_date);
     const start = startDate ? new Date(startDate) : endDate ? defaultStart : null;
     const end = endDate ? new Date(endDate) : startDate ? today : null;
 
