@@ -42,7 +42,20 @@ export default function PayableCheques() {
         .order('due_date', { ascending: true }); // ✅ Sort by due_date
 
       if (error) throw error;
-      setPayableCheques(data || []);
+      
+      // Additional client-side sorting to ensure correct order
+      const sortedData = (data || []).sort((a, b) => {
+        // First, sort by status priority (upcoming first, then paid, then cancelled)
+        const statusOrder = { upcoming: 0, paid: 1, cancelled: 2 };
+        if (a.status !== b.status) {
+          return statusOrder[a.status] - statusOrder[b.status];
+        }
+        
+        // Within same status, sort by due date (earliest first)
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      });
+      
+      setPayableCheques(sortedData);
     } catch (error) {
       console.error('Error fetching payable cheques:', error);
     } finally {
