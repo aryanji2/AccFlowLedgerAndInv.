@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, Filter, Eye, Edit, MapPin, Download, Calendar, FileText, TrendingUp, TrendingDown, Receipt, Trash2, AlertCircle } from 'lucide-react';
+import {
+  Users, Plus, Search, Filter, Eye, Edit, MapPin, Download, Calendar,
+  FileText, Trash2, AlertCircle
+} from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -7,13 +10,6 @@ import CreatePartyModal from './CreatePartyModal';
 import LocationGroupModal from './LocationGroupModal';
 import PartyStatementModal from './PartyStatementModal';
 import jsPDF from 'jspdf';
-
-interface LocationGroup {
-  id: string;
-  name: string;
-  description?: string;
-  created_at: string;
-}
 
 interface Party {
   id: string;
@@ -24,857 +20,182 @@ interface Party {
   email: string;
   address: string;
   location_group_id: string;
-  location_group?: LocationGroup;
-  balance: number;
+  location_group?: { id: string; name: string };
   type: 'customer' | 'supplier';
   debtor_days: number;
   last_payment_date?: string;
   created_at: string;
+  balance: number;
 }
 
-interface PartiesProps {
-  searchQuery?: string;
-  onPartySelect?: (party: Party) => void;
-}
-
-export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
+export default function Parties() {
   const { selectedFirm } = useApp();
   const { userProfile } = useAuth();
   const [parties, setParties] = useState<Party[]>([]);
-  const [locationGroups, setLocationGroups] = useState<LocationGroup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState(searchQuery || '');
-  const [filterLocation, setFilterLocation] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterType, setFilterType] = useState('all');
+  const [locationGroups, setLocationGroups] = useState([]);
+  const [search, setSearch] = useState('');
   const [showCreatePartyModal, setShowCreatePartyModal] = useState(false);
-  const [showLocationGroupModal, setShowLocationGroupModal] = useState(false);
-  const [selectedPartyForStatement, setSelectedPartyForStatement] = useState<Party | null>(null);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [isUsingMockData, setIsUsingMockData] = useState(false);
+  const [selectedPartyForStatement, setSelectedPartyForStatement] = useState<Party | null>(null);
+
+  const canEditParties = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
+  const canDeleteParties = userProfile?.role === 'admin';
+  const canManageLocationGroups = userProfile?.role === 'admin';
 
   useEffect(() => {
-    if (searchQuery) {
-      setSearchTerm(searchQuery);
-    }
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (selectedFirm) {
-      fetchData();
+    if (selectedFirm?.id) {
+      fetchParties();
     }
   }, [selectedFirm]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      if (!selectedFirm?.id) {
-        throw new Error('No firm selected');
-      }
+  const fetchParties = async () => {
+    const { data, error } = await supabase
+      .from('parties')
+      .select('*')
+      .eq('firm_id', selectedFirm?.id)
+      .eq('is_active', true)
+      .order('name');
 
-      // Fetch location groups
-      const { data: locationGroupsData, error: locationGroupsError } = await supabase
-        .from('location_groups')
-        .select('*')
-        .eq('firm_id', selectedFirm.id)
-        .order('name');
-
-      if (locationGroupsError) {
-        console.error('Error fetching location groups:', locationGroupsError);
-        throw locationGroupsError;
-      }
-
-      setLocationGroups(locationGroupsData || []);
-
-      // Fetch parties with a simpler query that doesn't rely on foreign key relationships
-      const { data: partiesData, error: partiesError } = await supabase
-        .from('parties')
-        .select('*')
-        .eq('firm_id', selectedFirm.id)
-        .eq('is_active', true)
-        .order('name');
-
-      if (partiesError) {
-        console.error('Error fetching parties:', partiesError);
-        throw partiesError;
-      }
-
-      // If we have location groups, add them to the parties data
-      const partiesWithLocationGroups = partiesData?.map(party => {
-        const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
-        return {
-          ...party,
-          location_group: locationGroup
-        };
-      }) || [];
-
-      setParties(partiesWithLocationGroups);
-      setIsUsingMockData(false);
-
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError(error instanceof Error ? error.message : 'Failed to fetch data');
-      
-      // Fallback to mock data
-      useMockData();
-    } finally {
-      setLoading(false);
+    if (error) {
+      console.error('Failed to fetch parties:', error);
+      return;
     }
+
+    const enriched = await Promise.all(
+      data.map(async (party: Party) => {
+        const { data: transactions } = await supabase
+          .from('transactions')
+          .select('type, amount')
+          .eq('party_id', party.id)
+          .eq('firm_id', selectedFirm?.id)
+          .eq('status', 'approved');
+
+        let balance = 0;
+        transactions?.forEach(t => {
+          if (t.type === 'sale') balance += t.amount;
+          if (t.type === 'collection') balance -= t.amount;
+        });
+
+        return { ...party, balance };
+      })
+    );
+
+    setParties(enriched);
   };
 
-  const useMockData = () => {
-    // Mock location groups
-    const mockLocationGroups: LocationGroup[] = [
-      { id: 'loc-1', name: 'Mumbai Central', description: 'Central Mumbai area', created_at: new Date().toISOString() },
-      { id: 'loc-2', name: 'Delhi NCR', description: 'Delhi and surrounding areas', created_at: new Date().toISOString() },
-      { id: 'loc-3', name: 'Bangalore Tech Hub', description: 'Bangalore tech district', created_at: new Date().toISOString() },
-      { id: 'loc-4', name: 'Chennai', description: 'Chennai metropolitan area', created_at: new Date().toISOString() },
-    ];
-    
-    // Mock parties
-    const mockParties: Party[] = [
-      { 
-        id: 'party-1', 
-        firm_id: selectedFirm?.id || '',
-        name: 'ABC Retailers', 
-        contact_person: 'John Smith', 
-        phone: '+91 98765 43210', 
-        email: 'john@abcretailers.com',
-        address: '123 Main St, Mumbai',
-        location_group_id: 'loc-1',
-        location_group: mockLocationGroups[0],
-        balance: 75000,
-        type: 'customer',
-        debtor_days: 65,
-        last_payment_date: '2023-12-15',
-        created_at: new Date().toISOString()
-      },
-      { 
-        id: 'party-2', 
-        firm_id: selectedFirm?.id || '',
-        name: 'XYZ Distributors', 
-        contact_person: 'Sarah Johnson', 
-        phone: '+91 87654 32109', 
-        email: 'sarah@xyzdist.com',
-        address: '456 Business Park, Delhi',
-        location_group_id: 'loc-2',
-        location_group: mockLocationGroups[1],
-        balance: 180000,
-        type: 'customer',
-        debtor_days: 45,
-        last_payment_date: '2024-01-05',
-        created_at: new Date().toISOString()
-      },
-      { 
-        id: 'party-3', 
-        firm_id: selectedFirm?.id || '',
-        name: 'Quick Mart', 
-        contact_person: 'Mike Chen', 
-        phone: '+91 76543 21098', 
-        email: 'mike@quickmart.com',
-        address: '789 Tech Park, Bangalore',
-        location_group_id: 'loc-3',
-        location_group: mockLocationGroups[2],
-        balance: 95000,
-        type: 'customer',
-        debtor_days: 28,
-        last_payment_date: '2024-01-18',
-        created_at: new Date().toISOString()
-      },
-      { 
-        id: 'party-4', 
-        firm_id: selectedFirm?.id || '',
-        name: 'Super Store', 
-        contact_person: 'Lisa Wang', 
-        phone: '+91 65432 10987', 
-        email: 'lisa@superstore.com',
-        address: '101 Market St, Chennai',
-        location_group_id: 'loc-4',
-        location_group: mockLocationGroups[3],
-        balance: 120000,
-        type: 'customer',
-        debtor_days: 52,
-        last_payment_date: '2024-01-02',
-        created_at: new Date().toISOString()
-      },
-      { 
-        id: 'party-5', 
-        firm_id: selectedFirm?.id || '',
-        name: 'Global Suppliers', 
-        contact_person: 'Raj Patel', 
-        phone: '+91 54321 09876', 
-        email: 'raj@globalsuppliers.com',
-        address: '202 Industrial Area, Mumbai',
-        location_group_id: 'loc-1',
-        location_group: mockLocationGroups[0],
-        balance: -50000,
-        type: 'supplier',
-        debtor_days: 0,
-        last_payment_date: '2024-01-20',
-        created_at: new Date().toISOString()
-      }
-    ];
-    
-    setLocationGroups(mockLocationGroups);
-    setParties(mockParties);
-    setIsUsingMockData(true);
-  };
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+    }).format(Math.abs(amount));
 
-  // Add a function to refresh data after creating/updating parties
-  const handleDataRefresh = () => {
-    fetchData();
-  };
+  const getBalanceColor = (balance: number) =>
+    balance > 0 ? 'text-red-600' : balance < 0 ? 'text-green-600' : 'text-gray-600';
+
+  const getBalanceText = (balance: number) =>
+    balance > 0 ? `${formatCurrency(balance)} DR` :
+    balance < 0 ? `${formatCurrency(Math.abs(balance))} CR` : '₹0';
 
   const handleEditParty = (party: Party) => {
     setEditingParty(party);
     setShowCreatePartyModal(true);
   };
 
-  const handleDeleteParty = async (partyId: string) => {
-    try {
-      setLoading(true);
-      
-      if (isUsingMockData) {
-        // For mock data, just remove from state
-        setParties(prev => prev.filter(party => party.id !== partyId));
-        setConfirmDelete(null);
-        return;
-      }
-      
-      // In a real app, we might want to check if the party has any transactions
-      // before allowing deletion
-      
-      // Soft delete by setting is_active to false
-      const { error } = await supabase
-        .from('parties')
-        .update({ is_active: false })
-        .eq('id', partyId);
-        
-      if (error) {
-        console.error('Error deleting party:', error);
-        throw error;
-      }
-      
-      // Update local state
-      setParties(prev => prev.filter(party => party.id !== partyId));
-      setConfirmDelete(null);
-      
-    } catch (error) {
-      console.error('Error deleting party:', error);
-      alert('Failed to delete party. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const handleDeleteParty = async (id: string) => {
+    await supabase.from('parties').update({ is_active: false }).eq('id', id);
+    fetchParties();
   };
 
-  const filteredParties = parties.filter((party) => {
-    const matchesSearch =
-      (party.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (party.contact_person || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (party.phone || '').includes(searchTerm);
-
-    const matchesLocation =
-      filterLocation === 'all' || party.location_group_id === filterLocation;
-
-    const matchesStatus =
-      filterStatus === 'all' ||
-      (filterStatus === 'overdue' && party.debtor_days > 60) ||
-      (filterStatus === 'near_limit' && party.debtor_days > 30 && party.debtor_days <= 60) ||
-      (filterStatus === 'good' && party.debtor_days <= 30);
-      
-    const matchesType =
-      filterType === 'all' || party.type === filterType;
-
-    return matchesSearch && matchesLocation && matchesStatus && matchesType;
-  });
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(Math.abs(amount));
-  };
-
-  const getStatusBadge = (debtorDays: number) => {
-    if (debtorDays > 60) {
-      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-red-600 bg-red-50">Overdue</span>;
-    } else if (debtorDays > 30) {
-      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-yellow-600 bg-yellow-50">High Usage</span>;
-    }
-    return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-green-600 bg-green-50">Good</span>;
-  };
-
-  const exportToPDF = (locationGroupId?: string) => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.width;
-    const pageHeight = doc.internal.pageSize.height;
-    const margin = 20;
-    
-    // Filter parties by location if specified
-    const exportParties = locationGroupId 
-      ? parties.filter(p => p.location_group_id === locationGroupId)
-      : parties;
-    
-    const locationGroup = locationGroups.find(lg => lg.id === locationGroupId);
-    const title = locationGroup 
-      ? `Parties Report - ${locationGroup.name}`
-      : 'All Parties Report';
-    
-    // Header with logo and title
-    doc.setFillColor(128, 0, 128); // Purple color
-    doc.rect(0, 0, pageWidth, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255); // White text
-    doc.setFontSize(22);
-    doc.setFont('helvetica', 'bold');
-    doc.text(title, pageWidth / 2, 20, { align: 'center' });
-    
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, 30, { align: 'center' });
-    doc.text(`Firm: ${selectedFirm?.name}`, pageWidth / 2, 40, { align: 'center' });
-    
-    // Reset text color for the rest of the document
-    doc.setTextColor(0, 0, 0);
-    
-    // Summary section
-    let yPosition = 60;
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Summary', margin, yPosition);
-    
-    yPosition += 10;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    
-    const totalCustomers = exportParties.filter(p => p.type === 'customer').length;
-    const totalSuppliers = exportParties.filter(p => p.type === 'supplier').length;
-    const totalOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-    const overdueParties = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 60)
-      .length;
-    
-    doc.text(`Total Parties: ${exportParties.length}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Customers: ${totalCustomers}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Suppliers: ${totalSuppliers}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Total Outstanding: ${formatCurrency(totalOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Overdue Parties: ${overdueParties}`, margin, yPosition);
-    
-    // Table headers
-    yPosition += 20;
-    doc.setFillColor(128, 0, 128); // Purple header
-    doc.rect(margin, yPosition, pageWidth - (margin * 2), 10, 'F');
-    
-    doc.setTextColor(255, 255, 255); // White text for header
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    
-    // Define column positions
-    const nameX = margin + 5;
-    const contactX = margin + 60;
-    const phoneX = margin + 100;
-    const locationX = margin + 140;
-    const balanceX = margin + 180;
-    const daysX = margin + 210;
-    
-    doc.text('Party Name', nameX, yPosition + 7);
-    doc.text('Contact', contactX, yPosition + 7);
-    doc.text('Phone', phoneX, yPosition + 7);
-    doc.text('Location', locationX, yPosition + 7);
-    doc.text('Balance', balanceX, yPosition + 7);
-    doc.text('Days', daysX, yPosition + 7);
-    
-    // Reset text color for data rows
-    doc.setTextColor(0, 0, 0);
-    doc.setFont('helvetica', 'normal');
-    
-    // Table data
-    yPosition += 15;
-    
-    // Alternate row colors
-    let isEvenRow = false;
-    
-    exportParties.forEach((party) => {
-      // Check if we need a new page
-      if (yPosition > pageHeight - 30) {
-        doc.addPage();
-        yPosition = 20;
-      }
-      
-      // Add alternating row background
-      if (isEvenRow) {
-        doc.setFillColor(245, 245, 245);
-        doc.rect(margin, yPosition - 5, pageWidth - (margin * 2), 10, 'F');
-      }
-      isEvenRow = !isEvenRow;
-      
-      // Truncate long text
-      const partyName = party.name.length > 25 ? party.name.substring(0, 22) + '...' : party.name;
-      const contactName = party.contact_person?.length > 15 ? party.contact_person.substring(0, 12) + '...' : (party.contact_person || 'N/A');
-      const locationName = party.location_group?.name || 'N/A';
-      
-      doc.text(partyName, nameX, yPosition);
-      doc.text(contactName, contactX, yPosition);
-      doc.text(party.phone || 'N/A', phoneX, yPosition);
-      doc.text(locationName, locationX, yPosition);
-      
-      // Set balance color based on value
-      if (party.balance > 0) {
-        doc.setTextColor(192, 57, 43); // Red for positive balance (customer owes)
-      } else if (party.balance < 0) {
-        doc.setTextColor(39, 174, 96); // Green for negative balance (we owe)
-      } else {
-        doc.setTextColor(0, 0, 0); // Black for zero balance
-      }
-      
-      // Right-align balance
-      const balanceText = party.balance >= 0 
-        ? formatCurrency(party.balance) 
-        : `(${formatCurrency(Math.abs(party.balance))})`;
-      doc.text(balanceText, balanceX + 30, yPosition, { align: 'right' });
-      
-      // Set debtor days color based on value
-      if (party.debtor_days > 60) {
-        doc.setTextColor(192, 57, 43); // Red for overdue
-      } else if (party.debtor_days > 30) {
-        doc.setTextColor(243, 156, 18); // Yellow/Orange for high
-      } else {
-        doc.setTextColor(39, 174, 96); // Green for good
-      }
-      
-      // Right-align debtor days
-      doc.text(party.debtor_days.toString(), daysX + 10, yPosition, { align: 'right' });
-      
-      // Reset text color
-      doc.setTextColor(0, 0, 0);
-      
-      yPosition += 10;
-    });
-    
-    // Summary
-    yPosition += 10;
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Outstanding Summary', margin, yPosition);
-    
-    yPosition += 10;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    
-    // Create a summary table for outstanding amounts by debtor days
-    const goodOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days <= 30 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-      
-    const highOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 30 && p.debtor_days <= 60 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-      
-    const overdueOutstanding = exportParties
-      .filter(p => p.type === 'customer' && p.debtor_days > 60 && p.balance > 0)
-      .reduce((sum, p) => sum + p.balance, 0);
-    
-    doc.text(`0-30 days (Good): ${formatCurrency(goodOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`31-60 days (High): ${formatCurrency(highOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`60+ days (Overdue): ${formatCurrency(overdueOutstanding)}`, margin, yPosition);
-    yPosition += 8;
-    doc.text(`Total Outstanding: ${formatCurrency(totalOutstanding)}`, margin, yPosition);
-    
-    // Footer
-    const footerPosition = pageHeight - 20;
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Generated on ${new Date().toLocaleString()} | AccFlow Business Management System`, pageWidth / 2, footerPosition, { align: 'center' });
-    
-    // Save the PDF
-    const fileName = locationGroup 
-      ? `parties-${locationGroup.name.toLowerCase().replace(/\s+/g, '-')}.pdf`
-      : 'all-parties.pdf';
-    doc.save(fileName);
-  };
-
-  const handleViewStatement = (party: Party) => {
-    if (onPartySelect) {
-      onPartySelect(party);
-    } else {
-      setSelectedPartyForStatement(party);
-    }
-  };
-
-  const stats = {
-    total: parties.length,
-    customers: parties.filter(p => p.type === 'customer').length,
-    suppliers: parties.filter(p => p.type === 'supplier').length,
-    overdue: parties.filter(p => p.debtor_days > 60).length,
-    nearLimit: parties.filter(p => p.debtor_days > 30 && p.debtor_days <= 60).length,
-    outstanding: parties.filter(p => p.balance > 0).reduce((sum, p) => sum + p.balance, 0),
-  };
-
-  const canManageLocationGroups = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
-  const canEditParties = userProfile?.role === 'admin';
-  const canDeleteParties = userProfile?.role === 'admin';
-
-  if (loading && parties.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 space-y-4">
-        <div className="text-red-600 text-center">
-          <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
-          <p className="text-sm">{error}</p>
-        </div>
-        <button 
-          onClick={fetchData}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
+  const filteredParties = parties.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <div className="space-y-3 sm:space-y-4 lg:space-y-6 max-w-full">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 text-white">
-        <div className="flex flex-col space-y-3 sm:space-y-4">
-          <div>
-            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold mb-1 sm:mb-2">Party Management</h1>
-            <p className="text-purple-100 text-xs sm:text-sm lg:text-base">Manage customer relationships and debtor days</p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-            {canManageLocationGroups && (
-              <button
-                onClick={() => setShowLocationGroupModal(true)}
-                className="flex items-center justify-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-3 sm:px-4 py-2 rounded-lg transition-colors text-xs sm:text-sm"
-              >
-                <MapPin className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>Manage Locations</span>
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setEditingParty(null);
-                setShowCreatePartyModal(true);
-              }}
-              className="flex items-center justify-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-3 sm:px-4 py-2 rounded-lg transition-colors text-xs sm:text-sm"
-            >
-              <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span>Add Party</span>
-            </button>
-          </div>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <input
+          type="text"
+          className="border px-3 py-2 rounded-md w-full max-w-sm"
+          placeholder="Search parties..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="flex gap-2">
+          <button
+            className="bg-purple-600 text-white px-4 py-2 rounded-md"
+            onClick={() => setShowCreatePartyModal(true)}
+          >
+            <Plus size={16} className="inline-block mr-1" />
+            Add Party
+          </button>
         </div>
       </div>
 
-      {/* Mock Data Notice */}
-      {isUsingMockData && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start space-x-3">
-            <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {filteredParties.map(party => (
+          <div
+            key={party.id}
+            className="border p-4 rounded-lg shadow-sm bg-white flex justify-between items-start"
+          >
             <div>
-              <p className="text-blue-800 font-medium">Demo Mode</p>
-              <p className="text-blue-700 text-sm">
-                You're viewing mock party data. To use real party management features, please configure your Supabase connection properly.
-              </p>
+              <div className="font-semibold text-lg">{party.name}</div>
+              <div className="text-sm text-gray-500">{party.contact_person}</div>
+              <div className="text-xs text-gray-400">{party.phone}</div>
+              <div className="mt-2 text-sm">
+                Balance:{' '}
+                <span className={`font-medium ${getBalanceColor(party.balance)}`}>
+                  {getBalanceText(party.balance)}
+                </span>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 lg:gap-6">
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Total Parties</div>
-        </div>
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600">{stats.customers}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Customers</div>
-        </div>
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-green-600">{stats.suppliers}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Suppliers</div>
-        </div>
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-red-600">{stats.overdue}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Overdue</div>
-        </div>
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-yellow-600">{stats.nearLimit}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Near Limit</div>
-        </div>
-        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-sm sm:text-lg lg:text-2xl font-bold text-purple-600">{formatCurrency(stats.outstanding)}</div>
-          <div className="text-xs sm:text-sm text-gray-500">Outstanding</div>
-        </div>
-      </div>
-
-      {/* Filters and Export */}
-      <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex flex-col space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search parties..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-              <select
-                value={filterLocation}
-                onChange={(e) => setFilterLocation(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-              >
-                <option value="all">All Locations</option>
-                {locationGroups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-              >
-                <option value="all">All Status</option>
-                <option value="good">Good (≤30 days)</option>
-                <option value="near_limit">Near Limit (31-60 days)</option>
-                <option value="overdue">{'Overdue (>60 days)'}</option>
-              </select>
-
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-              >
-                <option value="all">All Types</option>
-                <option value="customer">Customers</option>
-                <option value="supplier">Suppliers</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-            <div className="text-xs sm:text-sm text-gray-500">
-              Showing {filteredParties.length} of {parties.length} parties
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+            <div className="flex gap-2">
               <button
-                onClick={() => exportToPDF()}
-                className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs sm:text-sm"
+                onClick={() => setSelectedPartyForStatement(party)}
+                title="View Statement"
               >
-                <Download className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span>Export All</span>
+                <FileText className="w-4 h-4 text-gray-500 hover:text-purple-600" />
               </button>
-              
-              {filterLocation !== 'all' && (
-                <button
-                  onClick={() => exportToPDF(filterLocation)}
-                  className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors text-xs sm:text-sm"
-                >
-                  <Download className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span>Export Location</span>
+              {canEditParties && (
+                <button onClick={() => handleEditParty(party)} title="Edit">
+                  <Edit className="w-4 h-4 text-gray-500 hover:text-blue-600" />
+                </button>
+              )}
+              {canDeleteParties && (
+                <button onClick={() => handleDeleteParty(party.id)} title="Delete">
+                  <Trash2 className="w-4 h-4 text-gray-500 hover:text-red-600" />
                 </button>
               )}
             </div>
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* Parties List */}
-      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-gray-200">
-        <div className="p-3 sm:p-4 lg:p-6 border-b border-gray-200">
-          <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-            Parties ({filteredParties.length})
-          </h3>
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {filteredParties.map((party) => (
-            <div key={party.id} className="p-3 sm:p-4 lg:p-6 hover:bg-gray-50 transition-colors">
-              <div className="space-y-3 lg:space-y-0 lg:flex lg:items-center lg:justify-between">
-                <div className="flex items-start space-x-3 flex-1 min-w-0">
-                  <div className={`w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    party.type === 'customer' ? 'bg-purple-50' : 'bg-green-50'
-                  }`}>
-                    <Users className={`w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6 ${
-                      party.type === 'customer' ? 'text-purple-600' : 'text-green-600'
-                    }`} />
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-3 mb-2">
-                      <h4 className="font-medium text-gray-900 text-sm sm:text-base truncate">{party.name}</h4>
-                      <div className="flex items-center space-x-2">
-                        {getStatusBadge(party.debtor_days)}
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          party.type === 'customer' ? 'text-purple-600 bg-purple-50' : 'text-green-600 bg-green-50'
-                        }`}>
-                          {party.type === 'customer' ? 'Customer' : 'Supplier'}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1 sm:space-y-0 sm:grid sm:grid-cols-1 lg:grid-cols-3 sm:gap-2 lg:gap-4 text-xs sm:text-sm text-gray-500">
-                      <div className="flex items-center space-x-2">
-                        <Users className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">{party.contact_person || 'No contact person'}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">{party.location_group?.name || 'No location'}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">Last: {party.last_payment_date ? new Date(party.last_payment_date).toLocaleDateString() : 'Never'}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="text-xs text-gray-400 mt-1 truncate">
-                      {party.address || 'No address provided'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between lg:justify-end lg:space-x-6">
-                  <div className="text-left lg:text-right">
-                    <div className="text-xs sm:text-sm text-gray-500">Current Balance</div>
-                    <div className={`text-sm sm:text-base lg:text-lg font-semibold ${party.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {party.balance >= 0 ? (
-                        <>{formatCurrency(party.balance)} DR</>
-                      ) : (
-                        <>{formatCurrency(Math.abs(party.balance))} CR</>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Debtor Days: {party.debtor_days}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1 sm:space-x-2">
-                    <button 
-                      onClick={() => handleViewStatement(party)}
-                      className="p-1.5 sm:p-2 text-gray-400 hover:text-purple-600 transition-colors"
-                      title="View Statement"
-                    >
-                      <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-                    </button>
-                    <button 
-                      className="p-1.5 sm:p-2 text-gray-400 hover:text-purple-600 transition-colors"
-                      title="View Details"
-                    >
-                      <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
-                    </button>
-                    {canEditParties && (
-                      <button 
-                        onClick={() => handleEditParty(party)}
-                        className="p-1.5 sm:p-2 text-gray-400 hover:text-purple-600 transition-colors"
-                        title="Edit Party"
-                      >
-                        <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
-                      </button>
-                    )}
-                    {canDeleteParties && (
-                      <>
-                        {confirmDelete === party.id ? (
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={() => setConfirmDelete(null)}
-                              className="p-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => handleDeleteParty(party.id)}
-                              className="p-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                            >
-                              Confirm
-                            </button>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => setConfirmDelete(party.id)}
-                            className="p-1.5 sm:p-2 text-gray-400 hover:text-red-600 transition-colors"
-                            title="Delete Party"
-                          >
-                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {filteredParties.length === 0 && (
-            <div className="p-6 sm:p-8 lg:p-12 text-center">
-              <Users className="w-8 h-8 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
-              <div className="text-gray-500 mb-2 text-sm sm:text-base">No parties found</div>
-              <div className="text-xs sm:text-sm text-gray-400">
-                {searchTerm || filterLocation !== 'all' || filterStatus !== 'all' || filterType !== 'all'
-                  ? 'Try adjusting your filters'
-                  : 'Start by adding your first party'
-                }
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Modals */}
       <CreatePartyModal
         isOpen={showCreatePartyModal}
         onClose={() => {
           setShowCreatePartyModal(false);
           setEditingParty(null);
+          fetchParties();
         }}
-        onSuccess={handleDataRefresh}
         editingParty={editingParty}
+        onSuccess={fetchParties}
       />
 
-      {canManageLocationGroups && (
-        <LocationGroupModal
-          isOpen={showLocationGroupModal}
-          onClose={() => setShowLocationGroupModal(false)}
-          locationGroups={locationGroups}
-          onSuccess={handleDataRefresh}
-        />
-      )}
       {selectedPartyForStatement && (
         <PartyStatementModal
           isOpen={!!selectedPartyForStatement}
           onClose={() => setSelectedPartyForStatement(null)}
           party={selectedPartyForStatement}
+        />
+      )}
+
+      {canManageLocationGroups && (
+        <LocationGroupModal
+          isOpen={false}
+          onClose={() => {}}
+          locationGroups={locationGroups}
+          onSuccess={fetchParties}
         />
       )}
     </div>
