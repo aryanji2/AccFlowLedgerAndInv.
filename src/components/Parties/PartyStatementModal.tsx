@@ -50,6 +50,15 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       setLoading(true);
       setError(null);
 
+      // Fetch current party data to get the opening balance
+      const { data: partyData, error: partyError } = await supabase
+        .from('parties')
+        .select('balance')
+        .eq('id', party.id)
+        .single();
+
+      if (partyError) throw partyError;
+
       const { data: txns, error } = await supabase
         .from('transactions')
         .select('*')
@@ -72,7 +81,10 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (priorErr) throw priorErr;
 
-      let openingBalance = 0;
+      // Start with the opening balance from the parties table
+      let openingBalance = partyData.balance || 0;
+      
+      // Add prior transactions to the opening balance
       prior.forEach(t => {
         if (t.type === 'sale') openingBalance += t.amount;
         else if (t.type === 'collection') openingBalance -= t.amount;
@@ -81,7 +93,8 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       let runningBalance = openingBalance;
       const result = [];
 
-      if (openingBalance !== 0) {
+      // Always show opening balance if it's not zero OR if there are transactions
+      if (openingBalance !== 0 || txns.length > 0) {
         result.push({
           id: 'ob',
           date: dateRange.from,
