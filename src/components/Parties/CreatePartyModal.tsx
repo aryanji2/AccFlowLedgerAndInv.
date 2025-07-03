@@ -181,8 +181,38 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         const { error } = await supabase
           .from('parties')
           .insert(partyData);
-          
+// ✅ Insert opening balance transaction if value is non-zero
         if (error) throw error;
+        const openingBalanceValue = parseFloat(formData.openingBalance || '0');
+
+if (openingBalanceValue !== 0) {
+  const transaction = {
+    firm_id: selectedFirm.id,
+    party_id: insertedParty.id,
+    type: 'opening_balance',
+    amount: Math.abs(openingBalanceValue),
+    status: 'approved',
+    transaction_date: new Date().toISOString().split('T')[0], // or use a form input for date
+    notes: 'Opening Balance',
+    created_by: userProfile?.id,
+  };
+
+  // Sale if customer owes us, Collection if we owe supplier
+  if (openingBalanceValue > 0) {
+    transaction['debit'] = openingBalanceValue;
+  } else {
+    transaction['credit'] = Math.abs(openingBalanceValue);
+  }
+
+  const { error: txError } = await supabase
+    .from('transactions')
+    .insert(transaction);
+
+  if (txError) {
+    console.error('Error inserting opening balance transaction:', txError);
+    // You may choose to continue or alert the user here
+  }
+}
       }
 
       onSuccess();
