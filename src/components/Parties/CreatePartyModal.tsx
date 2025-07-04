@@ -122,56 +122,6 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleOpeningBalanceTransaction = async (partyId: string, openingBalance: number) => {
-    const openingBalanceAmount = Math.abs(openingBalance);
-    const isPositive = openingBalance >= 0;
-    
-    // Check for existing opening balance transaction
-    const { data: existingOBTxn } = await supabase
-      .from('transactions')
-      .select('id, amount')
-      .eq('party_id', partyId)
-      .eq('firm_id', selectedFirm.id)
-      .eq('type', 'opening_balance')
-      .eq('status', 'approved')
-      .maybeSingle();
-
-    if (openingBalance === 0) {
-      // Delete opening balance transaction if balance is now zero
-      if (existingOBTxn) {
-        await supabase.from('transactions').delete().eq('id', existingOBTxn.id);
-      }
-      return;
-    }
-
-    const transactionData = {
-      firm_id: selectedFirm.id,
-      party_id: partyId,
-      type: 'opening_balance',
-      amount: openingBalanceAmount,
-      status: 'approved',
-      transaction_date: new Date().toISOString().split('T')[0],
-      created_by: userProfile?.id,
-      is_credit: isPositive,
-      description: 'Opening Balance'
-    };
-
-    if (existingOBTxn) {
-      // Update existing transaction if amount changed significantly
-      if (Math.abs(existingOBTxn.amount - openingBalanceAmount) > 0.001) {
-        await supabase.from('transactions')
-          .update({ 
-            ...transactionData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingOBTxn.id);
-      }
-    } else {
-      // Create new opening balance transaction
-      await supabase.from('transactions').insert(transactionData);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFirm || !userProfile) return;
@@ -206,7 +156,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
       const openingBalance = parseFloat(formData.openingBalance) || 0;
 
       if (editingParty) {
-        // Update existing party - only update opening_balance
+        // Update existing party
         const { error: partyError } = await supabase
           .from('parties')
           .update({
@@ -218,15 +168,12 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // Only update opening_balance
+            opening_balance: openingBalance, // This is the static opening balance
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingParty.id);
           
         if (partyError) throw partyError;
-
-        // Handle opening balance transaction
-        await handleOpeningBalanceTransaction(editingParty.id, openingBalance);
       } else {
         // Create new party
         const { data: newParty, error: partyError } = await supabase
@@ -240,8 +187,8 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // Set opening_balance
-            balance: 0, // Initialize balance to 0
+            opening_balance: openingBalance, // This is the static opening balance
+            balance: openingBalance, // Initialize current balance to opening balance
             debtor_days: 0,
             created_by: userProfile.id,
           })
@@ -249,9 +196,6 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
           .single();
           
         if (partyError || !newParty) throw partyError;
-
-        // Handle opening balance transaction
-        await handleOpeningBalanceTransaction(newParty.id, openingBalance);
       }
 
       onSuccess();
@@ -559,7 +503,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
               <p className="mt-1 text-sm text-red-600">{errors.openingBalance}</p>
             )}
             <p className="text-xs text-gray-500 mt-1">
-              Positive for receivables (customer owes you), negative for payables (you owe supplier)
+              This is the initial balance at the start of accounting. It will not change with transactions.
             </p>
           </div>
 
