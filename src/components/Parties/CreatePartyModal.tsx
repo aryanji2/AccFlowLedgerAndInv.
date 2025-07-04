@@ -196,7 +196,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
                     <td className="p-2 text-right">{trx.credit > 0 ? formatCurrency(trx.credit) : ''}</td>
                     <td className="p-2 text-right">{formatCurrency(trx.balance)}</td>
                   </tr>
-                ))}
+               ))}
               </tbody>
             </table>
           )}
