@@ -85,11 +85,11 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       let openingBalance = partyData.balance || 0;
       
       // Add prior transactions to the opening balance
-      prior.forEach(t => {
-        if (t.type === 'sale') openingBalance += t.amount;
-        else if (t.type === 'collection') openingBalance -= t.amount;
-      });
-
+      // prior.forEach(t => {
+      //   if (t.type === 'sale') openingBalance += t.amount;
+      //   else if (t.type === 'collection') openingBalance -= t.amount;
+      // });
+      
       let runningBalance = openingBalance;
       const result = [];
 
