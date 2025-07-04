@@ -31,6 +31,7 @@ function formatCurrencyPlain(amount: number) {
 }
 
 export default function PartyStatementModal({ isOpen, onClose, party }) {
+   if (!isOpen || !party) return null;
   const { selectedFirm } = useApp();
   const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
