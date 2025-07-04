@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, MapPin, Phone, Mail, Building, Search, Plus, AlertTriangle } from 'lucide-react';
+import { X, Users, MapPin, Phone, Mail, Building, Plus, AlertTriangle } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -124,6 +124,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
 
   const handleOpeningBalanceTransaction = async (partyId: string, openingBalance: number) => {
     const openingBalanceAmount = Math.abs(openingBalance);
+    const isPositive = openingBalance >= 0;
     
     // Check for existing opening balance transaction
     const { data: existingOBTxn } = await supabase
@@ -140,31 +141,34 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
       if (existingOBTxn) {
         await supabase.from('transactions').delete().eq('id', existingOBTxn.id);
       }
-    } else {
-      // Use proper floating point comparison
-      const amountChanged = Math.abs((existingOBTxn?.amount || 0) - openingBalanceAmount) > 0.001;
-      
-      if (existingOBTxn && amountChanged) {
-        // Update existing transaction
+      return;
+    }
+
+    const transactionData = {
+      firm_id: selectedFirm.id,
+      party_id: partyId,
+      type: 'opening_balance',
+      amount: openingBalanceAmount,
+      status: 'approved',
+      transaction_date: new Date().toISOString().split('T')[0],
+      created_by: userProfile?.id,
+      is_credit: isPositive,
+      description: 'Opening Balance'
+    };
+
+    if (existingOBTxn) {
+      // Update existing transaction if amount changed significantly
+      if (Math.abs(existingOBTxn.amount - openingBalanceAmount) > 0.001) {
         await supabase.from('transactions')
           .update({ 
-            amount: openingBalanceAmount,
-            transaction_date: new Date().toISOString().split('T')[0],
+            ...transactionData,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingOBTxn.id);
-      } else if (!existingOBTxn) {
-        // Create new opening balance transaction
-        await supabase.from('transactions').insert({
-          firm_id: selectedFirm.id,
-          party_id: partyId,
-          type: 'opening_balance',
-          amount: openingBalanceAmount,
-          status: 'approved',
-          transaction_date: new Date().toISOString().split('T')[0],
-          created_by: userProfile?.id,
-        });
       }
+    } else {
+      // Create new opening balance transaction
+      await supabase.from('transactions').insert(transactionData);
     }
   };
 
@@ -202,7 +206,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
       const openingBalance = parseFloat(formData.openingBalance) || 0;
 
       if (editingParty) {
-        // Update existing party - only update opening_balance, not the main balance
+        // Update existing party - only update opening_balance
         const { error: partyError } = await supabase
           .from('parties')
           .update({
@@ -214,9 +218,8 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // Only store opening balance here
+            opening_balance: openingBalance, // Only update opening_balance
             updated_at: new Date().toISOString(),
-            created_by: userProfile.id,
           })
           .eq('id', editingParty.id);
           
@@ -237,8 +240,8 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // Only store opening balance here
-            balance: 0, // Start with zero balance - it will be calculated from transactions
+            opening_balance: openingBalance, // Set opening_balance
+            balance: 0, // Initialize balance to 0
             debtor_days: 0,
             created_by: userProfile.id,
           })
