@@ -50,9 +50,9 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       setLoading(true);
       setError(null);
 
-      // Fetch current party data to get the balance (previously called opening_balance)
+      // Fetch current party data to get the opening balance
       const { data: partyData, error: partyError } = await supabase
-        .from('parties') // Note: Make sure this matches your actual table name
+        .from('parties')
         .select('balance')
         .eq('id', party.id)
         .single();
@@ -81,7 +81,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (priorErr) throw priorErr;
 
-      // Start with the balance from the parties table
+      // Start with the opening balance from the parties table
       let openingBalance = partyData.balance || 0;
       
       // Add prior transactions to the opening balance
@@ -94,18 +94,18 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       const result = [];
 
       // Always show opening balance if it's not zero OR if there are transactions
-      if (openingBalance !== 0 || txns.length > 0) {
-        result.push({
-          id: 'ob',
-          date: dateRange.from,
-          type: 'opening_balance',
-          description: 'Opening Balance',
-          debit: openingBalance > 0 ? openingBalance : 0,
-          credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
-          balance: runningBalance,
-        });
-      }
-
+      // if (openingBalance !== 0 || txns.length > 0) {
+      //   result.push({
+      //     id: 'ob',
+      //     date: dateRange.from,
+      //     type: 'opening_balance',
+      //     description: 'Opening Balance',
+      //     debit: openingBalance > 0 ? openingBalance : 0,
+      //     credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+      //     balance: runningBalance,
+      //   });
+      // }
+      
       txns.forEach(t => {
         let debit = 0;
         let credit = 0;
@@ -141,7 +141,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         party,
         transactions: result,
         summary: {
-          opening_balance: openingBalance, // This is now calculated correctly
+          opening_balance: openingBalance,
           closing_balance: runningBalance,
           total_debits: totalDebits,
           total_credits: totalCredits,
@@ -263,7 +263,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
                 </tr>
               </thead>
               <tbody>
-                {statement?.transactions?.map(trx => (
+                {statement.transactions.map(trx => (
                   <tr key={trx.id} className="border-t">
                     <td className="p-2">{formatDateFull(trx.date)}</td>
                     <td className="p-2">{trx.description}</td>
