@@ -495,14 +495,13 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
           onSuccess={fetchData}
         />
       )}
-  if (!isOpen || !party) return null;
-     {selectedPartyForStatement &&selectedPartyForStatement.name ? (
-  <PartyStatementModal
-    isOpen={true}
-    onClose={() => setSelectedPartyForStatement(null)}
-    party={selectedPartyForStatement}
-  />
-) : null}
+  {selectedPartyForStatement && selectedPartyForStatement.name && (
+        <PartyStatementModal
+          isOpen={true}
+          onClose={() => setSelectedPartyForStatement(null)}
+          party={selectedPartyForStatement}
+        />
+      )}
     </div>
   );
 }
