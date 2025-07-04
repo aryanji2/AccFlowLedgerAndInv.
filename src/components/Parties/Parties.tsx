@@ -101,27 +101,31 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
 
       if (partiesError) throw partiesError;
 
-      // Correct balance logic using only approved transactions AFTER party creation
+      // Calculate balances correctly without double-counting
       const enriched = await Promise.all(
         (partiesData || []).map(async (party: Party) => {
-          const { data: txns, error: txnError } = await supabase
+          const { data: transactions, error: txnError } = await supabase
             .from('transactions')
-            .select('type, amount, transaction_date')
+            .select('type, amount')
             .eq('firm_id', selectedFirm.id)
             .eq('party_id', party.id)
             .eq('status', 'approved')
-            .gt('transaction_date', party.created_at); // Only after party was created
+            .gt('transaction_date', party.created_at);
 
           if (txnError) throw txnError;
 
-          let balance = party.balance || 0;
-          txns?.forEach(t => {
-            if (t.type === 'sale') balance += t.amount;
-            if (t.type === 'collection') balance -= t.amount;
+          // Calculate balance purely from transactions first
+          let calculatedBalance = 0;
+          transactions?.forEach(t => {
+            if (t.type === 'sale') calculatedBalance += t.amount;
+            if (t.type === 'collection') calculatedBalance -= t.amount;
           });
 
+          // Then add the opening balance from the party record
+          const finalBalance = calculatedBalance + (party.balance || 0);
+
           const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
-          return { ...party, balance, location_group: locationGroup };
+          return { ...party, balance: finalBalance, location_group: locationGroup };
         })
       );
 
@@ -363,144 +367,161 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
                   
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-3 mb-2">
-                      <h4 className="font-medium text-gray-900 text-sm sm:text-base truncate">{party.name}</h4>
-                      <div className="flex items-center space-x-2">
-                        {getStatusBadge(party.debtor_days)}
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          party.type === 'customer' ? 'text-purple-600 bg-purple-50' : 'text-green-600 bg-green-50'
-                        }`}>
-                          {party.type === 'customer' ? 'Customer' : 'Supplier'}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1 sm:space-y-0 sm:grid sm:grid-cols-1 lg:grid-cols-3 sm:gap-2 lg:gap-4 text-xs sm:text-sm text-gray-500">
-                      <div className="flex items-center space-x-2">
-                        <Users className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">{party.contact_person || 'No contact person'}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">{party.location_group?.name || 'No location'}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
-                        <span className="truncate">Last: {party.last_payment_date ? new Date(party.last_payment_date).toLocaleDateString() : 'Never'}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="text-xs text-gray-400 mt-1 truncate">
-                      {party.address || 'No address provided'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between lg:justify-end lg:space-x-6">
-                  <div className="text-left lg:text-right">
-                    <div className="text-xs sm:text-sm text-gray-500">Current Balance</div>
-                    <div className={`text-sm sm:text-base lg:text-lg font-semibold ${party.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {party.balance >= 0 ? (
-                        <>{formatCurrency(party.balance)} DR</>
-                      ) : (
-                        <>{formatCurrency(Math.abs(party.balance))} CR</>
+                                            <h4 className="font-medium text-sm sm:text-base text-gray-900 truncate">
+                        {party.name}
+                      </h4>
+                      {party.type === 'customer' && (
+                        <div className="flex items-center space-x-2">
+                          {getStatusBadge(party.debtor_days)}
+                          {party.last_payment_date && (
+                            <div className="flex items-center text-xs text-gray-500">
+                              <Calendar className="w-3 h-3 mr-1" />
+                              Last paid: {new Date(party.last_payment_date).toLocaleDateString()}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Debtor Days: {party.debtor_days}
+                    
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm text-gray-500">
+                      <div className="flex items-center">
+                        <Users className="w-3 h-3 mr-1" />
+                        <span className="truncate">{party.contact_person || 'No contact'}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <MapPin className="w-3 h-3 mr-1" />
+                        <span className="truncate">{party.location_group?.name || 'No location'}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <Receipt className="w-3 h-3 mr-1" />
+                        <span className="truncate">{party.type === 'customer' ? 'Customer' : 'Supplier'}</span>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center space-x-1 sm:space-x-2">
-                    <button 
+                </div>
+                
+                <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 lg:space-x-6 mt-3 lg:mt-0">
+                  <div className="flex flex-col items-end">
+                    <div className={`text-sm sm:text-base font-medium ${
+                      party.balance > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {formatCurrency(party.balance)}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {party.balance > 0 ? (
+                        party.type === 'customer' ? 'Receivable' : 'Payable'
+                      ) : (
+                        party.type === 'customer' ? 'Advance' : 'Advance'
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <button
                       onClick={() => handleViewStatement(party)}
-                      className="p-1.5 sm:p-2 text-gray-400 hover:text-purple-600 transition-colors"
+                      className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-purple-600"
                       title="View Statement"
                     >
-                      <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <Eye className="w-4 h-4" />
                     </button>
+                    
                     {canEditParties && (
-                      <button 
+                      <button
                         onClick={() => handleEditParty(party)}
-                        className="p-1.5 sm:p-2 text-gray-400 hover:text-purple-600 transition-colors"
+                        className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-blue-600"
                         title="Edit Party"
                       >
-                        <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                        <Edit className="w-4 h-4" />
                       </button>
                     )}
+                    
                     {canDeleteParties && (
-                      <>
-                        {confirmDelete === party.id ? (
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={() => setConfirmDelete(null)}
-                              className="p-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => handleDeleteParty(party.id)}
-                              className="p-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                            >
-                              Confirm
-                            </button>
-                          </div>
-                        ) : (
-                          <button 
-                            onClick={() => setConfirmDelete(party.id)}
-                            className="p-1.5 sm:p-2 text-gray-400 hover:text-red-600 transition-colors"
-                            title="Delete Party"
-                          >
-                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                          </button>
-                        )}
-                      </>
+                      <button
+                        onClick={() => setConfirmDelete(party.id)}
+                        className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-red-600"
+                        title="Delete Party"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
                 </div>
               </div>
+              
+              {confirmDelete === party.id && (
+                <div className="mt-3 p-3 bg-red-50 rounded-lg flex items-start sm:items-center justify-between">
+                  <div className="flex items-start sm:items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 sm:mt-0" />
+                    <span className="text-xs sm:text-sm text-red-600">
+                      Are you sure you want to delete this party? This action cannot be undone.
+                    </span>
+                  </div>
+                  <div className="flex space-x-2 mt-2 sm:mt-0">
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      className="px-3 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleDeleteParty(party.id)}
+                      className="px-3 py-1 text-xs bg-red-600 text-white rounded-md hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
-
+          
           {filteredParties.length === 0 && (
-            <div className="p-6 sm:p-8 lg:p-12 text-center">
-              <Users className="w-8 h-8 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
-              <div className="text-gray-500 mb-2 text-sm sm:text-base">No parties found</div>
-              <div className="text-xs sm:text-sm text-gray-400">
-                {searchTerm || filterLocation !== 'all' || filterType !== 'all'
-                  ? 'Try adjusting your filters'
-                  : 'Start by adding your first party'
-                }
-              </div>
+            <div className="p-6 text-center">
+              <div className="text-gray-500 mb-4">No parties found</div>
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilterLocation('all');
+                  setFilterType('all');
+                }}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+              >
+                Clear filters
+              </button>
             </div>
           )}
         </div>
       </div>
 
       {/* Modals */}
-      <CreatePartyModal
-        isOpen={showCreatePartyModal}
-        onClose={() => {
-          setShowCreatePartyModal(false);
-          setEditingParty(null);
-        }}
-        onSuccess={fetchData}
-        editingParty={editingParty}
-      />
-
-      {canManageLocationGroups && (
-        <LocationGroupModal
-          isOpen={showLocationGroupModal}
-          onClose={() => setShowLocationGroupModal(false)}
+      {showCreatePartyModal && (
+        <CreatePartyModal
+          firmId={selectedFirm?.id || ''}
           locationGroups={locationGroups}
+          onClose={() => {
+            setShowCreatePartyModal(false);
+            setEditingParty(null);
+          }}
           onSuccess={fetchData}
+          editingParty={editingParty}
+        />
+      )}
+      
+      {showLocationGroupModal && (
+        <LocationGroupModal
+          firmId={selectedFirm?.id || ''}
+          onClose={() => setShowLocationGroupModal(false)}
+          onSuccess={() => {
+            fetchData();
+            setShowLocationGroupModal(false);
+          }}
         />
       )}
       
       {selectedPartyForStatement && (
         <PartyStatementModal
-          isOpen={!!selectedPartyForStatement}
-          onClose={() => setSelectedPartyForStatement(null)}
           party={selectedPartyForStatement}
+          onClose={() => setSelectedPartyForStatement(null)}
         />
       )}
     </div>
