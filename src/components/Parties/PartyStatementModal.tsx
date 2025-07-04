@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  X, FileText, Calendar, jsPDF // trimmed imports for brevity
+  X, FileText, Calendar, TrendingUp, TrendingDown, Receipt, User, AlertCircle, Clock
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { supabase } from '../../lib/supabase';
+import jsPDF from 'jspdf';
+
 
 function formatDateFull(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-GB', {
