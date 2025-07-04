@@ -4,6 +4,7 @@ import { useApp } from '../../contexts/AppContext';
 import { supabase } from '../../lib/supabase';
 import jsPDF from 'jspdf';
 
+// Helper functions (no changes)
 function formatDateFull(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -49,6 +50,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       setLoading(true);
       setError(null);
 
+      // Fetch transactions within the date range
       const { data: txns, error } = await supabase
         .from('transactions')
         .select('*')
@@ -61,6 +63,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (error) throw error;
 
+      // Fetch transactions prior to the date range for opening balance
       const { data: prior, error: priorErr } = await supabase
         .from('transactions')
         .select('*')
@@ -71,27 +74,40 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (priorErr) throw priorErr;
 
-      // ✅ Calculate opening balance from prior transactions
+      // Calculate opening balance from prior transactions
       let openingBalance = 0;
       prior.forEach(t => {
         if (t.type === 'sale') openingBalance += t.amount;
         else if (t.type === 'collection') openingBalance -= t.amount;
       });
 
+      // ✅ **FIX:** Calculate totals and closing balance declaratively
+      const totalDebits = txns
+        .filter(t => t.type === 'sale')
+        .reduce((sum, t) => sum + t.amount, 0);
+        
+      const totalCredits = txns
+        .filter(t => t.type === 'collection')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const closingBalance = openingBalance + totalDebits - totalCredits;
+
+      // --- Build the transaction list for display ---
       let runningBalance = openingBalance;
       const result = [];
 
-      // ✅ Show opening balance as first row
+      // Add Opening Balance as the first row
       result.push({
         id: 'opening-balance',
         date: dateRange.from,
         type: 'opening_balance',
         description: 'Opening Balance',
-        debit: openingBalance > 0 ? openingBalance : 0,
-        credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+        debit: 0, // Opening balance is not a debit/credit for the period
+        credit: 0,
         balance: runningBalance,
       });
 
+      // Process transactions for the period
       txns.forEach(t => {
         let debit = 0;
         let credit = 0;
@@ -120,28 +136,26 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         });
       });
 
-      const totalDebits = result.filter(r => r.type !== 'opening_balance').reduce((sum, r) => sum + r.debit, 0);
-      const totalCredits = result.filter(r => r.type !== 'opening_balance').reduce((sum, r) => sum + r.credit, 0);
-
       setStatement({
         party,
         transactions: result,
         summary: {
           opening_balance: openingBalance,
-          closing_balance: runningBalance,
-          total_debits: totalDebits,
-          total_credits: totalCredits,
+          closing_balance: closingBalance, // Use the correctly calculated closing balance
+          total_debits: totalDebits,     // Use the new total
+          total_credits: totalCredits,   // Use the new total
         }
       });
     } catch (err) {
-      console.error(err);
-      setError('Failed to fetch statement');
+      console.error("Error fetching party statement:", err);
+      setError('Failed to fetch statement. Please check console for details.');
     } finally {
       setLoading(false);
     }
   };
 
   const exportToPDF = () => {
+    // PDF export logic (no changes needed here)
     if (!statement) return;
 
     const doc = new jsPDF();
@@ -192,17 +206,17 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     y += 5;
 
     statement.transactions.forEach(trx => {
-      if (y > 280) {
-        doc.addPage();
-        y = margin;
-      }
+        if (y > 280) {
+          doc.addPage();
+          y = margin;
+        }
 
-      doc.text(formatDateFull(trx.date), margin, y);
-      doc.text(trx.description.slice(0, 40), margin + 35, y);
-      if (trx.debit > 0) doc.text(formatCurrencyPlain(trx.debit), margin + 100, y);
-      if (trx.credit > 0) doc.text(formatCurrencyPlain(trx.credit), margin + 120, y);
-      doc.text(formatCurrencyPlain(trx.balance), margin + 140, y);
-      y += 6;
+        doc.text(formatDateFull(trx.date), margin, y);
+        doc.text(trx.description.slice(0, 40), margin + 35, y);
+        if (trx.debit > 0) doc.text(formatCurrencyPlain(trx.debit), margin + 100, y);
+        if (trx.credit > 0) doc.text(formatCurrencyPlain(trx.credit), margin + 120, y);
+        doc.text(formatCurrencyPlain(trx.balance), margin + 140, y);
+        y += 6;
     });
 
     doc.save(`${party.name.replace(/\s+/g, '_')}_statement.pdf`);
@@ -210,6 +224,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
   if (!isOpen) return null;
 
+  // JSX rendering (no changes)
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
