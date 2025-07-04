@@ -1,4 +1,3 @@
-// --- START OF PartyStatementModal.tsx ---
 import React, { useState, useEffect } from 'react';
 import { X, FileText, Download, Calendar, TrendingUp, TrendingDown, Receipt, User, AlertCircle, Clock } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
@@ -50,15 +49,6 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       setLoading(true);
       setError(null);
 
-      // Fetch current party data to get the opening balance
-      const { data: partyData, error: partyError } = await supabase
-        .from('parties')
-        .select('balance')
-        .eq('id', party.id)
-        .single();
-
-      if (partyError) throw partyError;
-
       const { data: txns, error } = await supabase
         .from('transactions')
         .select('*')
@@ -81,27 +71,27 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (priorErr) throw priorErr;
 
-      // Start with the opening balance from the parties table
-      let openingBalance = partyData.balance || 0;
-      
-      
-      
+      // ✅ Calculate opening balance from prior transactions
+      let openingBalance = 0;
+      prior.forEach(t => {
+        if (t.type === 'sale') openingBalance += t.amount;
+        else if (t.type === 'collection') openingBalance -= t.amount;
+      });
+
       let runningBalance = openingBalance;
       const result = [];
 
-      // Always show opening balance if it's not zero OR if there are transactions
-      // if (openingBalance !== 0 || txns.length > 0) {
-      //   result.push({
-      //     id: 'ob',
-      //     date: dateRange.from,
-      //     type: 'opening_balance',
-      //     description: 'Opening Balance',
-      //     debit: openingBalance > 0 ? openingBalance : 0,
-      //     credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
-      //     balance: runningBalance,
-      //   });
-      // }
-      
+      // ✅ Show opening balance as first row
+      result.push({
+        id: 'opening-balance',
+        date: dateRange.from,
+        type: 'opening_balance',
+        description: 'Opening Balance',
+        debit: openingBalance > 0 ? openingBalance : 0,
+        credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+        balance: runningBalance,
+      });
+
       txns.forEach(t => {
         let debit = 0;
         let credit = 0;
@@ -276,4 +266,3 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     </div>
   );
 }
-// --- END OF PartyStatementModal.tsx ---
