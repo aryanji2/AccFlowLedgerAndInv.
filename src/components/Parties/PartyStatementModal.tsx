@@ -140,7 +140,7 @@ prior.forEach(t => {
         party,
         transactions: result,
         summary: {
-          opening_balance: openingBalance,
+          balance: openingBalance,
           closing_balance: runningBalance,
           total_debits: totalDebits,
           total_credits: totalCredits,
