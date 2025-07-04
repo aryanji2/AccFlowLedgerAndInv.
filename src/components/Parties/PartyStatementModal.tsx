@@ -39,7 +39,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     to: new Date().toISOString().split('T')[0],
   });
-
+  if (!isOpen || !party) return null;
   useEffect(() => {
     if (isOpen && party) {
       fetchPartyStatement();
