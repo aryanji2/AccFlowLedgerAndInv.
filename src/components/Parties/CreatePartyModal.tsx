@@ -53,7 +53,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         address: editingParty.address || '',
         locationGroupId: editingParty.location_group_id || '',
         type: editingParty.type || 'customer',
-        openingBalance: editingParty.opening_balance ? editingParty.opening_balance.toString() : '0',
+        openingBalance: editingParty.balance ? editingParty.balance.toString() : '0',
       });
     } else {
       setFormData({
@@ -168,7 +168,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // This is the static opening balance
+            balance: openingBalance, // This is the static opening balance
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingParty.id);
@@ -187,8 +187,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            opening_balance: openingBalance, // This is the static opening balance
-            balance: openingBalance, // Initialize current balance to opening balance
+            balance: openingBalance, // This is the static opening balance
             debtor_days: 0,
             created_by: userProfile.id,
           })
@@ -489,7 +488,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
           {/* Opening Balance */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Opening Balance
+              Current Balance
             </label>
             <input
               type="number"
@@ -503,7 +502,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
               <p className="mt-1 text-sm text-red-600">{errors.openingBalance}</p>
             )}
             <p className="text-xs text-gray-500 mt-1">
-              This is the initial balance at the start of accounting. It will not change with transactions.
+              This represents the party's current balance. Set the initial balance here.
             </p>
           </div>
 
