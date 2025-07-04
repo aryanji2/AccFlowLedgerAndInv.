@@ -31,7 +31,8 @@ function formatCurrencyPlain(amount: number) {
 }
 
 export default function PartyStatementModal({ isOpen, onClose, party }) {
-   if (!isOpen || !party) return null;
+  if (!isOpen || !party || !party.name) return null;
+
   const { selectedFirm } = useApp();
   const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
     to: new Date().toISOString().split('T')[0],
   });
-  if (!isOpen || !party) return null;
+
   useEffect(() => {
     if (isOpen && party) {
       fetchPartyStatement();
@@ -215,8 +216,6 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
     doc.save(`${party.name.replace(/\s+/g, '_')}_statement.pdf`);
   };
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
