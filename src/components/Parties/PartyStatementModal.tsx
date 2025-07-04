@@ -31,7 +31,7 @@ function formatCurrencyPlain(amount: number) {
 }
 
 export default function PartyStatementModal({ isOpen, onClose, party }) {
-  // 🛡️ GUARD: bail out BEFORE any party.name access
+  // Guard: nobody calls us without a valid party
   if (!isOpen || !party || typeof party.name !== 'string') {
     return null;
   }
@@ -40,25 +40,45 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
   const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Default dates: from party.created_at → today
+  const todayISO = new Date().toISOString().split('T')[0];
+  const initialFrom = party.created_at
+    ? new Date(party.created_at).toISOString().split('T')[0]
+    : todayISO;
+
   const [dateRange, setDateRange] = useState({
-    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString()
-      .split('T')[0],
-    to: new Date().toISOString().split('T')[0],
+    from: initialFrom,
+    to: todayISO,
   });
 
+  // Whenever modal opens or party changes, reset the date range
   useEffect(() => {
-    if (isOpen && party.id) {
+    if (isOpen && party) {
+      setDateRange({
+        from: party.created_at
+          ? new Date(party.created_at).toISOString().split('T')[0]
+          : todayISO,
+        to: todayISO,
+      });
       fetchPartyStatement();
     }
-  }, [isOpen, party, dateRange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, party]);
+
+  useEffect(() => {
+    // If the user manually changes the dates, refetch
+    if (isOpen && party) {
+      fetchPartyStatement();
+    }
+  }, [dateRange]);
 
   const fetchPartyStatement = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Opening balance transaction
+      // Opening balance
       const { data: openingTxns, error: openingErr } = await supabase
         .from('transactions')
         .select('*')
@@ -67,7 +87,6 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .eq('type', 'opening_balance')
         .order('transaction_date', { ascending: true })
         .limit(1);
-
       if (openingErr) throw openingErr;
       const openingTxn = openingTxns[0];
       const openingBalance = openingTxn ? openingTxn.amount : 0;
@@ -75,7 +94,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         ? openingTxn.transaction_date
         : dateRange.from;
 
-      // Fetch other transactions
+      // Period transactions
       const { data: txns, error } = await supabase
         .from('transactions')
         .select('*')
@@ -86,54 +105,42 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .gte('transaction_date', dateRange.from)
         .lte('transaction_date', dateRange.to)
         .order('transaction_date', { ascending: true });
-
       if (error) throw error;
 
       // Totals
-      const totalDebits = txns
-        .filter(t => t.type === 'sale')
+      const totalDebits = txns.filter(t => t.type === 'sale')
         .reduce((sum, t) => sum + t.amount, 0);
-      const totalCredits = txns
-        .filter(t => t.type === 'collection')
+      const totalCredits = txns.filter(t => t.type === 'collection')
         .reduce((sum, t) => sum + t.amount, 0);
       const closingBalance = openingBalance + totalDebits - totalCredits;
 
-      // Build running statement
+      // Build statement rows
       let runningBalance = openingBalance;
-      const result = [
-        {
-          id: 'opening-balance',
-          date: openingDate,
-          type: 'opening_balance',
-          description: 'Opening Balance',
-          debit: 0,
-          credit: 0,
-          balance: runningBalance,
-        },
-      ];
+      const rows = [{
+        id: 'opening-balance',
+        date: openingDate,
+        type: 'opening_balance',
+        description: 'Opening Balance',
+        debit: 0,
+        credit: 0,
+        balance: runningBalance,
+      }];
 
       txns.forEach(t => {
         let debit = 0, credit = 0;
         if (t.type === 'sale') {
-          debit = t.amount;
-          runningBalance += debit;
+          debit = t.amount; runningBalance += debit;
         } else {
-          credit = t.amount;
-          runningBalance -= credit;
+          credit = t.amount; runningBalance -= credit;
         }
-        result.push({
+        rows.push({
           id: t.id,
           date: t.transaction_date,
           type: t.type,
-          description:
-            t.type === 'sale'
-              ? `Sale - ${t.bill_number || 'No Bill'}`
-              : `Payment - ${t.payment_method || 'Unknown'}${
-                  t.notes ? ` - ${t.notes}` : ''
-                }`,
-          debit,
-          credit,
-          balance: runningBalance,
+          description: t.type === 'sale'
+            ? `Sale - ${t.bill_number || 'No Bill'}`
+            : `Payment - ${t.payment_method || 'Unknown'}${t.notes ? ` - ${t.notes}` : ''}`,
+          debit, credit, balance: runningBalance,
           reference: t.bill_number,
           payment_method: t.payment_method,
         });
@@ -141,17 +148,17 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       setStatement({
         party,
-        transactions: result,
+        transactions: rows,
         summary: {
           opening_balance: openingBalance,
           closing_balance: closingBalance,
           total_debits: totalDebits,
           total_credits: totalCredits,
-        },
+        }
       });
     } catch (err) {
-      console.error('Error fetching party statement:', err);
-      setError('Failed to fetch statement. Please check console.');
+      console.error('Error fetching statement:', err);
+      setError('Failed to fetch statement. Check console.');
     } finally {
       setLoading(false);
     }
@@ -174,9 +181,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     y += 8;
     doc.setFontSize(10);
     doc.text(
-      `From: ${formatDateFull(dateRange.from)} To: ${formatDateFull(
-        dateRange.to
-      )}`,
+      `From: ${formatDateFull(dateRange.from)} To: ${formatDateFull(dateRange.to)}`,
       105,
       y,
       { align: 'center' }
@@ -192,62 +197,57 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     y += 6;
     doc.text(`Email: ${party.email || 'N/A'}`, margin, y);
 
+    // Summary
     y += 10;
     doc.setFont('helvetica', 'bold');
     doc.text(
       `Opening Balance: ${formatCurrency(statement.summary.opening_balance)}`,
-      margin,
-      y
+      margin, y
     );
     y += 6;
     doc.text(
       `Closing Balance: ${formatCurrency(statement.summary.closing_balance)}`,
-      margin,
-      y
+      margin, y
     );
     y += 6;
     doc.text(
       `Total Debits: ${formatCurrency(statement.summary.total_debits)}`,
-      margin,
-      y
+      margin, y
     );
     y += 6;
     doc.text(
       `Total Credits: ${formatCurrency(statement.summary.total_credits)}`,
-      margin,
-      y
+      margin, y
     );
 
+    // Column headers
     y += 10;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    ['Date', 'Desc', 'DR', 'CR', 'Bal'].forEach((h, i) =>
-      doc.text(h, margin + (i * 25), y)
+    doc.setFontSize(10).setFont('helvetica', 'bold');
+    ['Date', 'Desc', 'DR', 'CR', 'Bal'].forEach((h,i) =>
+      doc.text(h, margin + i*30, y)
     );
 
     doc.setFont('helvetica', 'normal');
     y += 5;
 
+    // Rows
     statement.transactions.forEach(trx => {
-      if (y > 280) {
-        doc.addPage();
-        y = margin;
-      }
+      if (y > 280) { doc.addPage(); y = margin; }
       doc.text(formatDateFull(trx.date), margin, y);
       doc.text(trx.description.slice(0, 40), margin + 30, y);
-      if (trx.debit > 0) doc.text(formatCurrencyPlain(trx.debit), margin + 85, y);
-      if (trx.credit > 0) doc.text(formatCurrencyPlain(trx.credit), margin + 110, y);
-      doc.text(formatCurrencyPlain(trx.balance), margin + 135, y);
+      if (trx.debit > 0) doc.text(formatCurrencyPlain(trx.debit), margin + 90, y);
+      if (trx.credit > 0) doc.text(formatCurrencyPlain(trx.credit), margin + 120, y);
+      doc.text(formatCurrencyPlain(trx.balance), margin + 150, y);
       y += 6;
     });
 
-    doc.save(`${party.name.replace(/\s+/g, '_')}_statement.pdf`);
+    doc.save(`${party.name.replace(/\s+/g,'_')}_statement.pdf`);
   };
 
-  // Final render
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
         <div className="p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
           <div className="text-lg font-semibold">
             {party.name} - Account Statement
@@ -259,21 +259,18 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
             >
               Export PDF
             </button>
-            <button onClick={onClose}>
-              <X />
-            </button>
+            <button onClick={onClose}><X /></button>
           </div>
         </div>
 
+        {/* Date pickers */}
         <div className="p-4 bg-gray-50 flex gap-4">
           <div>
             <label className="text-xs text-gray-600 block">From</label>
             <input
               type="date"
               value={dateRange.from}
-              onChange={e =>
-                setDateRange({ ...dateRange, from: e.target.value })
-              }
+              onChange={e => setDateRange({ ...dateRange, from: e.target.value })}
               className="text-sm px-2 py-1 border rounded"
             />
           </div>
@@ -282,14 +279,13 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
             <input
               type="date"
               value={dateRange.to}
-              onChange={e =>
-                setDateRange({ ...dateRange, to: e.target.value })
-              }
+              onChange={e => setDateRange({ ...dateRange, to: e.target.value })}
               className="text-sm px-2 py-1 border rounded"
             />
           </div>
         </div>
 
+        {/* Statement table */}
         <div className="flex-1 overflow-y-auto p-4">
           {loading ? (
             <div>Loading...</div>
@@ -297,8 +293,8 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
             <div className="text-red-500">{error}</div>
           ) : (
             <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-gray-100">
+              <thead className="bg-gray-100">
+                <tr>
                   <th className="text-left p-2">Date</th>
                   <th className="text-left p-2">Description</th>
                   <th className="text-right p-2">Debit</th>
