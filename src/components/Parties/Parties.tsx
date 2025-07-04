@@ -496,11 +496,13 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         />
       )}
   
-      {selectedPartyForStatement ? (
+     {selectedPartyForStatement ? (
   <PartyStatementModal
     isOpen={true}
     onClose={() => setSelectedPartyForStatement(null)}
     party={selectedPartyForStatement}
   />
 ) : null}
+    </div>
+  );
 }
