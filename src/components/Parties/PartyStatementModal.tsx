@@ -31,8 +31,6 @@ function formatCurrencyPlain(amount: number) {
 }
 
 export default function PartyStatementModal({ isOpen, onClose, party }) {
-  if (!isOpen || !party || !party.name) return null;
-
   const { selectedFirm } = useApp();
   const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +41,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
   });
 
   useEffect(() => {
-    if (isOpen && party) {
+    if (isOpen && party && party.id) {
       fetchPartyStatement();
     }
   }, [isOpen, party, dateRange]);
@@ -151,7 +149,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
   };
 
   const exportToPDF = () => {
-    if (!statement) return;
+    if (!statement || !party || !party.name) return;
 
     const doc = new jsPDF();
     const margin = 15;
@@ -216,6 +214,8 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
     doc.save(`${party.name.replace(/\s+/g, '_')}_statement.pdf`);
   };
+
+  if (!isOpen || !party || !party.name) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
