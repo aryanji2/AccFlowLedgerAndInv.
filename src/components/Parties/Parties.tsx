@@ -495,7 +495,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
           onSuccess={fetchData}
         />
       )}
-  {selectedPartyForStatement && selectedPartyForStatement.name && (
+  {selectedPartyForStatement && (
         <PartyStatementModal
           isOpen={true}
           onClose={() => setSelectedPartyForStatement(null)}
