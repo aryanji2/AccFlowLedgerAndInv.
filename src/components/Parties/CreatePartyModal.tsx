@@ -1,208 +1,236 @@
-// --- START OF UPDATED PartyStatementModal.tsx ---
 import React, { useState, useEffect } from 'react';
 import {
-  X, FileText, Download, Calendar, TrendingUp, TrendingDown, Receipt, User, AlertCircle, Clock
+  X, Users, MapPin, Phone, Mail, Building, Plus, AlertTriangle
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import jsPDF from 'jspdf';
 
-function formatCurrency(amount: number) {
-  return `₹${amount.toFixed(2)}`;
+interface LocationGroup {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
 }
 
-function formatDateFull(dateStr: string) {
-  const options: Intl.DateTimeFormatOptions = {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric'
-  };
-  return new Date(dateStr).toLocaleDateString('en-IN', options);
+interface CreatePartyModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+  editingParty?: any;
 }
 
-export default function PartyStatementModal({ isOpen, onClose, party }) {
+export default function CreatePartyModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  editingParty
+}: CreatePartyModalProps) {
   const { selectedFirm } = useApp();
-  const [statement, setStatement] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState({
-    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    to: new Date().toISOString().split('T')[0],
+  const { userProfile } = useAuth();
+
+  const [locationGroups, setLocationGroups] = useState<LocationGroup[]>([]);
+  const [formData, setFormData] = useState({
+    name: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    address: '',
+    locationGroupId: '',
+    type: 'customer' as 'customer' | 'supplier',
+    openingBalance: '0',
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [showLocationGroupModal, setShowLocationGroupModal] = useState(false);
+  const [newLocationGroupName, setNewLocationGroupName] = useState('');
 
+  // Fetch location groups when modal opens
   useEffect(() => {
-    if (isOpen && party) {
-      fetchPartyStatement();
+    if (isOpen) {
+      (async () => {
+        const { data, error } = await supabase
+          .from('location_groups')
+          .select('id, name')
+          .eq('firm_id', selectedFirm?.id)
+          .order('name');
+        if (!error && data) setLocationGroups(data);
+      })();
     }
-  }, [isOpen, party, dateRange]);
+  }, [isOpen, selectedFirm]);
 
-  const fetchPartyStatement = async () => {
+  // Populate form if editing
+  useEffect(() => {
+    if (editingParty) {
+      setFormData({
+        name: editingParty.name || '',
+        contactPerson: editingParty.contact_person || '',
+        phone: editingParty.phone || '',
+        email: editingParty.email || '',
+        address: editingParty.address || '',
+        locationGroupId: editingParty.location_group_id || '',
+        type: editingParty.type || 'customer',
+        openingBalance: String(editingParty.opening_balance ?? 0),
+      });
+    } else {
+      setFormData({
+        name: '',
+        contactPerson: '',
+        phone: '',
+        email: '',
+        address: '',
+        locationGroupId: locationGroups[0]?.id || '',
+        type: 'customer',
+        openingBalance: '0',
+      });
+    }
+    setErrors({});
+  }, [editingParty, locationGroups]);
+
+  const validateForm = () => {
+    const err: Record<string, string> = {};
+    if (!formData.name.trim()) err.name = 'Party name is required';
+    if (!formData.contactPerson.trim()) err.contactPerson = 'Contact person is required';
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
+      err.email = 'Invalid email';
+    if (!formData.locationGroupId) err.locationGroupId = 'Select a location group';
+    if (isNaN(Number(formData.openingBalance)))
+      err.openingBalance = 'Enter a valid number';
+    setErrors(err);
+    return Object.keys(err).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFirm || !userProfile) return;
+    if (!validateForm()) return;
+
+    setLoading(true);
     try {
-      setLoading(true);
-      setError(null);
-
-      // ✅ Get opening_balance directly from parties table
-      const { data: partyWithOpeningBalance, error: partyErr } = await supabase
-        .from('parties')
-        .select('opening_balance')
-        .eq('id', party.id)
-        .single();
-
-      if (partyErr) throw partyErr;
-
-      const openingBalance = partyWithOpeningBalance?.opening_balance ?? 0;
-      const openingDate = dateRange.from;
-
-      // ✅ Fetch approved transactions within date range
-      const { data: txns, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('party_id', party.id)
-        .eq('firm_id', selectedFirm.id)
-        .eq('status', 'approved')
-        .neq('type', 'opening_balance')
-        .gte('transaction_date', dateRange.from)
-        .lte('transaction_date', dateRange.to)
-        .order('transaction_date', { ascending: true });
-
-      if (error) throw error;
-
-      // ✅ Calculate totals and balances
-      const totalDebits = txns
-        .filter(t => t.type === 'sale')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-      const totalCredits = txns
-        .filter(t => t.type === 'collection')
-        .reduce((sum, t) => sum + t.amount, 0);
-
-      const closingBalance = openingBalance + totalDebits - totalCredits;
-
-      let runningBalance = openingBalance;
-      const result = [];
-
-      result.push({
-        id: 'opening-balance',
-        date: openingDate,
-        type: 'opening_balance',
-        description: 'Opening Balance',
-        debit: 0,
-        credit: 0,
-        balance: runningBalance,
-      });
-
-      txns.forEach(t => {
-        let debit = 0;
-        let credit = 0;
-
-        if (t.type === 'sale') {
-          debit = t.amount;
-          runningBalance += debit;
-        } else if (t.type === 'collection') {
-          credit = t.amount;
-          runningBalance -= credit;
-        }
-
-        result.push({
-          id: t.id,
-          date: t.transaction_date,
-          type: t.type,
-          description:
-            t.type === 'sale'
-              ? `Sale - ${t.bill_number || 'No Bill'}`
-              : `Payment - ${t.payment_method || 'Unknown'}${t.notes ? ` - ${t.notes}` : ''}`,
-          debit,
-          credit,
-          balance: runningBalance,
-          reference: t.bill_number,
-          payment_method: t.payment_method,
-        });
-      });
-
-      setStatement({
-        party,
-        transactions: result,
-        summary: {
-          opening_balance: openingBalance,
-          closing_balance: closingBalance,
-          total_debits: totalDebits,
-          total_credits: totalCredits,
-        }
-      });
+      // Create or update party
+      const payload = {
+        firm_id: selectedFirm.id,
+        name: formData.name,
+        contact_person: formData.contactPerson,
+        phone: formData.phone,
+        email: formData.email,
+        address: formData.address,
+        location_group_id: formData.locationGroupId,
+        type: formData.type,
+        opening_balance: parseFloat(formData.openingBalance || '0'),
+        updated_at: new Date().toISOString(),
+      };
+      if (editingParty) {
+        const { error } = await supabase
+          .from('parties')
+          .update(payload)
+          .eq('id', editingParty.id);
+        if (error) throw error;
+      } else {
+        await supabase
+          .from('parties')
+          .insert({
+            ...payload,
+            created_by: userProfile.id,
+            debtor_days: 0,
+          });
+      }
+      onSuccess();
+      onClose();
     } catch (err) {
-      console.error("Error fetching party statement:", err);
-      setError('Failed to fetch statement. Please check console.');
+      console.error('Error saving party:', err);
+      alert('Failed to save party. Check console.');
     } finally {
       setLoading(false);
     }
   };
 
-  const exportToPDF = () => {
-    const doc = new jsPDF();
-    doc.text(`${party.name} - Account Statement`, 10, 10);
-    let y = 20;
-    statement.transactions.forEach(t => {
-      const line = `${formatDateFull(t.date)} | ${t.description} | Debit: ${t.debit} | Credit: ${t.credit} | Bal: ${t.balance}`;
-      doc.text(line, 10, y);
-      y += 8;
-    });
-    doc.save(`${party.name}_statement.pdf`);
-  };
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="p-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white flex justify-between items-center">
-          <div className="text-lg font-semibold">{party.name} - Account Statement</div>
-          <div className="flex space-x-2">
-            <button onClick={exportToPDF} className="bg-white text-blue-700 px-3 py-1 rounded">Export PDF</button>
-            <button onClick={onClose}><X /></button>
-          </div>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold">
+            {editingParty ? 'Edit Party' : 'Add New Party'}
+          </h2>
+          <button onClick={onClose}>
+            <X />
+          </button>
         </div>
 
-        <div className="p-4 bg-gray-50 flex gap-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Party Name */}
           <div>
-            <label className="text-xs text-gray-600 block">From</label>
-            <input type="date" value={dateRange.from} onChange={e => setDateRange({ ...dateRange, from: e.target.value })} className="text-sm px-2 py-1 border rounded" />
+            <label className="block text-sm font-medium">Party Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              className="w-full border p-2 rounded"
+            />
+            {errors.name && <p className="text-red-600 text-sm">{errors.name}</p>}
           </div>
-          <div>
-            <label className="text-xs text-gray-600 block">To</label>
-            <input type="date" value={dateRange.to} onChange={e => setDateRange({ ...dateRange, to: e.target.value })} className="text-sm px-2 py-1 border rounded" />
-          </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div>Loading...</div>
-          ) : error ? (
-            <div className="text-red-500">{error}</div>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="text-left p-2">Date</th>
-                  <th className="text-left p-2">Description</th>
-                  <th className="text-right p-2">Debit</th>
-                  <th className="text-right p-2">Credit</th>
-                  <th className="text-right p-2">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {statement.transactions.map(trx => (
-                  <tr key={trx.id} className="border-t">
-                    <td className="p-2">{formatDateFull(trx.date)}</td>
-                    <td className="p-2">{trx.description}</td>
-                    <td className="p-2 text-right">{trx.debit > 0 ? formatCurrency(trx.debit) : ''}</td>
-                    <td className="p-2 text-right">{trx.credit > 0 ? formatCurrency(trx.credit) : ''}</td>
-                    <td className="p-2 text-right">{formatCurrency(trx.balance)}</td>
-                  </tr>
-               ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+          {/* Contact Person */}
+          <div>
+            <label className="block text-sm font-medium">Contact Person *</label>
+            <input
+              type="text"
+              value={formData.contactPerson}
+              onChange={e => setFormData({ ...formData, contactPerson: e.target.value })}
+              className="w-full border p-2 rounded"
+            />
+            {errors.contactPerson && <p className="text-red-600 text-sm">{errors.contactPerson}</p>}
+          </div>
+
+          {/* Location Group */}
+          <div>
+            <label className="block text-sm font-medium">Location Group *</label>
+            <select
+              value={formData.locationGroupId}
+              onChange={e => setFormData({ ...formData, locationGroupId: e.target.value })}
+              className="w-full border p-2 rounded"
+            >
+              <option value="">Select group</option>
+              {locationGroups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+            {errors.locationGroupId && <p className="text-red-600 text-sm">{errors.locationGroupId}</p>}
+          </div>
+
+          {/* Opening Balance */}
+          <div>
+            <label className="block text-sm font-medium">Opening Balance</label>
+            <input
+              type="number"
+              value={formData.openingBalance}
+              onChange={e => setFormData({ ...formData, openingBalance: e.target.value })}
+              className="w-full border p-2 rounded"
+            />
+            {errors.openingBalance && <p className="text-red-600 text-sm">{errors.openingBalance}</p>}
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end space-x-2 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border rounded"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : editingParty ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
-// --- END OF UPDATED PartyStatementModal.tsx ---
