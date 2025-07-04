@@ -50,9 +50,9 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
       setLoading(true);
       setError(null);
 
-      // Fetch current party data to get the opening balance
+      // Fetch current party data to get the balance (previously called opening_balance)
       const { data: partyData, error: partyError } = await supabase
-        .from('parties')
+        .from('parties') // Note: Make sure this matches your actual table name
         .select('balance')
         .eq('id', party.id)
         .single();
@@ -81,13 +81,14 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
 
       if (priorErr) throw priorErr;
 
-      // Start with the opening balance from the parties table
-      let openingBalance = 0;
-
-prior.forEach(t => {
-  const sign = t.is_credit ? 1 : -1;
-  openingBalance += sign * t.amount;
-});
+      // Start with the balance from the parties table
+      let openingBalance = partyData.balance || 0;
+      
+      // Add prior transactions to the opening balance
+      prior.forEach(t => {
+        if (t.type === 'sale') openingBalance += t.amount;
+        else if (t.type === 'collection') openingBalance -= t.amount;
+      });
 
       let runningBalance = openingBalance;
       const result = [];
@@ -140,7 +141,7 @@ prior.forEach(t => {
         party,
         transactions: result,
         summary: {
-          balance: openingBalance,
+          opening_balance: openingBalance, // This is now calculated correctly
           closing_balance: runningBalance,
           total_debits: totalDebits,
           total_credits: totalCredits,
@@ -262,7 +263,7 @@ prior.forEach(t => {
                 </tr>
               </thead>
               <tbody>
-                {statement.transactions.map(trx => (
+                {statement?.transactions?.map(trx => (
                   <tr key={trx.id} className="border-t">
                     <td className="p-2">{formatDateFull(trx.date)}</td>
                     <td className="p-2">{trx.description}</td>
