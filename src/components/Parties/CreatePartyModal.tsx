@@ -9,7 +9,7 @@ interface LocationGroup {
   name: string;
   description?: string;
   created_at: string;
-}
+} 
 
 interface CreatePartyModalProps {
   isOpen: boolean;
@@ -53,7 +53,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         address: editingParty.address || '',
         locationGroupId: editingParty.location_group_id || '',
         type: editingParty.type || 'customer',
-        openingBalance: editingParty.balance ? editingParty.balance.toString() : '0',
+        openingBalance: editingParty.opening_balance ? editingParty.opening_balance.toString() : '0',
       });
     } else {
       setFormData({
@@ -202,7 +202,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
       const openingBalance = parseFloat(formData.openingBalance) || 0;
 
       if (editingParty) {
-        // Update existing party
+        // Update existing party - only update opening_balance, not the main balance
         const { error: partyError } = await supabase
           .from('parties')
           .update({
@@ -214,7 +214,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            balance: openingBalance, // balance = opening balance
+            opening_balance: openingBalance, // Only store opening balance here
             updated_at: new Date().toISOString(),
             created_by: userProfile.id,
           })
@@ -237,7 +237,8 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
             address: formData.address,
             location_group_id: locationGroupId,
             type: formData.type,
-            balance: openingBalance, // balance = opening balance
+            opening_balance: openingBalance, // Only store opening balance here
+            balance: 0, // Start with zero balance - it will be calculated from transactions
             debtor_days: 0,
             created_by: userProfile.id,
           })
