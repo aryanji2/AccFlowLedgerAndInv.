@@ -153,7 +153,7 @@ export default function CreatePartyModal({ isOpen, onClose, onSuccess, editingPa
         setLocationGroups(prev => [...prev, newLocationGroup]);
       }
       
-      const openingBalance = parseFloat(formData.openingBalance) || 0;
+      const openingBalance = 0;
 
       if (editingParty) {
         // Update existing party
