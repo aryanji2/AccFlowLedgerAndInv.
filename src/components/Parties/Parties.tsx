@@ -76,7 +76,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!selectedFirm?.id) {
         throw new Error('No firm selected');
       }
@@ -101,29 +101,29 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
 
       if (partiesError) throw partiesError;
 
-      // Calculate balances for each party
-     const enriched = await Promise.all(
-  (partiesData || []).map(async (party: Party) => {
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('type, amount')
-      .eq('party_id', party.id)
-      .eq('firm_id', selectedFirm.id)
-      .eq('status', 'approved');
+      // Correct balance logic using only approved transactions AFTER party creation
+      const enriched = await Promise.all(
+        (partiesData || []).map(async (party: Party) => {
+          const { data: txns, error: txnError } = await supabase
+            .from('transactions')
+            .select('type, amount, transaction_date')
+            .eq('firm_id', selectedFirm.id)
+            .eq('party_id', party.id)
+            .eq('status', 'approved')
+            .gt('transaction_date', party.created_at); // Only after party was created
 
-    // Start with the opening balance from the parties table
-    let balance = party.balance || 0;
-    
-    // Add transaction amounts to the opening balance
-    transactions?.forEach(t => {
-      if (t.type === 'sale') balance += t.amount;
-      if (t.type === 'collection') balance -= t.amount;
-    });
+          if (txnError) throw txnError;
 
-    const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
-    return { ...party, balance, location_group: locationGroup };
-  })
-);
+          let balance = party.balance || 0;
+          txns?.forEach(t => {
+            if (t.type === 'sale') balance += t.amount;
+            if (t.type === 'collection') balance -= t.amount;
+          });
+
+          const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
+          return { ...party, balance, location_group: locationGroup };
+        })
+      );
 
       setParties(enriched);
     } catch (error) {
