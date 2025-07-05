@@ -510,7 +510,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         onSuccess={fetchData}
         editingParty={editingParty}
       />
-      
+     
       {canManageLocationGroups && (
         <LocationGroupModal
           isOpen={showLocationGroupModal}
