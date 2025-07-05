@@ -54,6 +54,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
   const [selectedPartyForStatement, setSelectedPartyForStatement] = useState<Party | null>(null);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [locationSearchTerm, setLocationSearchTerm] = useState(''); // New state for location search
 
   const canEditParties = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
   const canDeleteParties = userProfile?.role === 'admin';
@@ -164,6 +165,11 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
       setLoading(false);
     }
   };
+
+  // Filter location groups based on search term
+  const filteredLocationGroups = locationGroups.filter(group => 
+    group.name.toLowerCase().includes(locationSearchTerm.toLowerCase())
+  );
 
   const filteredParties = parties.filter((party) => {
     const matchesSearch =
@@ -325,18 +331,37 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-              <select
-                value={filterLocation}
-                onChange={(e) => setFilterLocation(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-              >
-                <option value="all">All Locations</option>
-                {locationGroups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={filterLocation}
+                  onChange={(e) => setFilterLocation(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm appearance-none"
+                >
+                  <option value="all">All Locations</option>
+                  {filteredLocationGroups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+                
+                {/* Location search bar */}
+                <div className="mt-1 relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search locations..."
+                    value={locationSearchTerm}
+                    onChange={(e) => setLocationSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                  />
+                </div>
+              </div>
 
               <select
                 value={filterType}
@@ -510,7 +535,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         onSuccess={fetchData}
         editingParty={editingParty}
       />
-     
+      
       {canManageLocationGroups && (
         <LocationGroupModal
           isOpen={showLocationGroupModal}
