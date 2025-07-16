@@ -47,49 +47,42 @@ export default function DayBook() {
   const [editingEntry, setEditingEntry] = useState<DayBookEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Hook for fetching entries (depends on firm, date, and filters)
   useEffect(() => {
     if (selectedFirm) {
       fetchDayBookEntries();
-    }
-  }, [selectedFirm, selectedDate, filterStatus, filterType, filterStaff]);
-
-  // Hook for fetching staff list (depends ONLY on firm)
-  useEffect(() => {
-    if (selectedFirm) {
       fetchStaffList();
     }
-  }, [selectedFirm]);
+  }, [selectedFirm, selectedDate]);
 
   const fetchDayBookEntries = async () => {
     if (!selectedFirm?.id) return;
-    setLoading(true);
-    setError(null);
 
     try {
-      // Start building the query
-      let query = supabase
+      setLoading(true);
+      setError(null);
+      
+      // Since daybook_entries table doesn't exist, we'll use transactions table
+      // and filter for the current date
+      const { data, error } = await supabase
         .from('transactions')
-        .select(`*, user_profiles(full_name), parties(name)`)
+        .select(`
+          *,
+          user_profiles!transactions_created_by_fkey (
+            full_name
+          ),
+          parties (
+            name
+          )
+        `)
         .eq('firm_id', selectedFirm.id)
-        .eq('transaction_date', selectedDate);
+        .eq('transaction_date', selectedDate)
+        .order('created_at', { ascending: false });
 
-      // Conditionally add filters
-      if (filterStatus !== 'all') {
-        query = query.eq('status', filterStatus);
+      if (error) {
+        console.error('Error fetching day book entries:', error);
+        setError('Failed to load entries. Please try again.');
+        return;
       }
-      if (filterType !== 'all') {
-        const typeFilter = filterType === 'sale' ? 'sale' : ['payment', 'collection'];
-        query = query.in('type', Array.isArray(typeFilter) ? typeFilter : [typeFilter]);
-      }
-      if (filterStaff !== 'all') {
-        query = query.eq('created_by', filterStaff);
-      }
-
-      // Execute the final query
-      const { data, error } = await query.order('created_at', { ascending: false });
-
-      if (error) throw error;
 
       // Transform the data to match our interface
       const transformedEntries: DayBookEntry[] = data?.map(entry => ({
@@ -583,8 +576,7 @@ export default function DayBook() {
             </div>
           )}
         </div>
-      </div>
-
+      </div> 
       {/* Day Book Entry Modal */}
       <DayBookEntryModal
         isOpen={showModal}
