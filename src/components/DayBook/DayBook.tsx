@@ -1,699 +1,592 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  X, Plus, FileText, Calendar, Edit, Trash, ArrowLeft, ArrowRight, 
-  Search, Filter, RefreshCw, Download, ChevronDown, ChevronUp 
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, Plus, Search, Filter, Eye, Clock, Check, X, User, Receipt, TrendingUp, FileText, Download, Edit, Trash2, AlertCircle } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { format, parseISO, startOfDay, endOfDay, addDays, subDays } from 'date-fns';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import DayBookEntryModal from './DayBookEntryModal';
 
-// Utility functions
-const formatDisplayDate = (dateStr: string) => {
-  return format(parseISO(dateStr), 'dd MMMM yyyy');
-};
-
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.abs(amount));
-};
-
-// Type definitions
-interface Transaction {
+interface DayBookEntry {
   id: string;
-  transaction_date: string;
-  amount: number;
-  type: 'sale' | 'collection';
-  party_id: string;
   firm_id: string;
-  status: string;
-  bill_number?: string | null;
-  payment_method?: string | null;
-  party: {
-    name: string;
-  } | null;
+  date: string;
+  type: 'sale' | 'collection';
+  party_name: string;
+  party_id: string;
+  amount: number;
+  bill_number?: string;
+  payment_method?: string;
+  notes?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at?: string;
 }
 
-interface Party {
+interface StaffMember {
   id: string;
   name: string;
 }
 
-export default function Daybook() {
+export default function DayBook() {
   const { selectedFirm } = useApp();
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { userProfile } = useAuth();
+  const [entries, setEntries] = useState<DayBookEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [currentTransaction, setCurrentTransaction] = useState<Transaction | null>(null);
-  const [parties, setParties] = useState<Party[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'sale' | 'collection'>('all');
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [filterStaff, setFilterStaff] = useState('all');
+  const [showModal, setShowModal] = useState(false);
+  const [modalType, setModalType] = useState<'sale' | 'collection'>('sale');
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
+  const [editingEntry, setEditingEntry] = useState<DayBookEntry | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Fetch parties for dropdown
-  const fetchParties = useCallback(async () => {
-    if (!selectedFirm?.id) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('parties')
-        .select('id, name')
-        .eq('firm_id', selectedFirm.id)
-        .order('name', { ascending: true });
-      
-      if (error) throw error;
-      setParties(data || []);
-    } catch (err) {
-      console.error('Failed to fetch parties:', err);
+  useEffect(() => {
+    if (selectedFirm) {
+      fetchDayBookEntries();
+      fetchStaffList();
     }
-  }, [selectedFirm?.id]);
+  }, [selectedFirm, selectedDate]);
 
-  // Fetch transactions for selected date
-  const fetchTransactions = useCallback(async () => {
+  const fetchDayBookEntries = async () => {
     if (!selectedFirm?.id) return;
-    
-    setLoading(true);
-    setError(null);
-    
+
     try {
-      const startDate = startOfDay(new Date(selectedDate)).toISOString();
-      const endDate = endOfDay(new Date(selectedDate)).toISOString();
+      setLoading(true);
+      setError(null);
       
-      let query = supabase
+      // Since daybook_entries table doesn't exist, we'll use transactions table
+      // and filter for the current date
+      const { data, error } = await supabase
         .from('transactions')
         .select(`
-          id,
-          transaction_date,
-          amount,
-          type,
-          status,
-          bill_number,
-          payment_method,
-          party_id,
-          firm_id,
-          parties (name)
+          *,
+          user_profiles!transactions_created_by_fkey (
+            full_name
+          ),
+          parties (
+            name
+          )
         `)
         .eq('firm_id', selectedFirm.id)
-        .gte('transaction_date', startDate)
-        .lte('transaction_date', endDate)
-        .order('transaction_date', { ascending: true });
+        .eq('transaction_date', selectedDate)
+        .order('created_at', { ascending: false });
 
-      // Apply type filter if not 'all'
-      if (filterType !== 'all') {
-        query = query.eq('type', filterType);
+      if (error) {
+        console.error('Error fetching day book entries:', error);
+        setError('Failed to load entries. Please try again.');
+        return;
       }
 
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      setTransactions(data as Transaction[] || []);
-    } catch (err) {
-      console.error('Failed to fetch transactions:', err);
-      setError('Failed to load transactions. Please try again.');
+      // Transform the data to match our interface
+      const transformedEntries: DayBookEntry[] = data?.map(entry => ({
+        id: entry.id,
+        firm_id: entry.firm_id,
+        date: entry.transaction_date,
+        type: entry.type === 'sale' ? 'sale' : 'collection',
+        party_id: entry.party_id,
+        party_name: entry.parties?.name || 'Unknown Party',
+        amount: entry.amount,
+        bill_number: entry.bill_number,
+        payment_method: entry.payment_method,
+        notes: entry.notes,
+        status: entry.status,
+        created_by: entry.created_by,
+        created_by_name: entry.user_profiles?.full_name || 'Unknown User',
+        created_at: entry.created_at,
+        updated_at: entry.updated_at,
+      })) || [];
+
+      setEntries(transformedEntries);
+    } catch (error) {
+      console.error('Error in fetchDayBookEntries:', error);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, selectedFirm?.id, filterType]);
-
-  useEffect(() => {
-    fetchParties();
-  }, [fetchParties]);
-
-  useEffect(() => {
-    if (selectedFirm?.id) {
-      fetchTransactions();
-    }
-  }, [selectedDate, selectedFirm?.id, fetchTransactions]);
-
-  // Navigation between days
-  const navigateDays = (days: number) => {
-    const newDate = new Date(selectedDate);
-    newDate.setDate(newDate.getDate() + days);
-    setSelectedDate(newDate.toISOString().split('T')[0]);
   };
 
-  // Sort transactions
-  const sortedTransactions = React.useMemo(() => {
-    if (!sortConfig) return transactions;
-    
-    return [...transactions].sort((a, b) => {
-      if (a[sortConfig.key] < b[sortConfig.key]) {
-        return sortConfig.direction === 'asc' ? -1 : 1;
-      }
-      if (a[sortConfig.key] > b[sortConfig.key]) {
-        return sortConfig.direction === 'asc' ? 1 : -1;
-      }
-      return 0;
-    });
-  }, [transactions, sortConfig]);
+  const fetchStaffList = async () => {
+    if (!selectedFirm?.id) return;
 
-  // Filter transactions based on search
-  const filteredTransactions = React.useMemo(() => {
-    if (!searchTerm) return sortedTransactions;
-    
-    const term = searchTerm.toLowerCase();
-    return sortedTransactions.filter(txn => 
-      txn.party?.name?.toLowerCase().includes(term) ||
-      txn.bill_number?.toLowerCase().includes(term) ||
-      txn.payment_method?.toLowerCase().includes(term) ||
-      txn.amount.toString().includes(term)
-    );
-  }, [sortedTransactions, searchTerm]);
-
-  // Handle sorting
-  const handleSort = (key: string) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  // Open form for new transaction
-  const handleNewTransaction = (type: 'sale' | 'collection') => {
-    setCurrentTransaction({
-      id: '',
-      transaction_date: new Date().toISOString(),
-      amount: 0,
-      type,
-      party_id: '',
-      firm_id: selectedFirm?.id || '',
-      status: 'approved',
-      bill_number: '',
-      payment_method: type === 'collection' ? 'cash' : '',
-      party: null
-    });
-    setShowForm(true);
-  };
-
-  // Open form for editing transaction
-  const handleEditTransaction = (txn: Transaction) => {
-    setCurrentTransaction(txn);
-    setShowForm(true);
-  };
-
-  // Delete transaction
-  const handleDeleteTransaction = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this transaction?')) return;
-    
     try {
+      // Use the correct foreign key relationship name
+      const { data, error } = await supabase
+        .from('user_firm_access')
+        .select(`
+          user_profiles!user_firm_access_user_id_fkey_profiles (
+            id,
+            full_name
+          )
+        `)
+        .eq('firm_id', selectedFirm.id);
+
+      if (error) {
+        console.error('Error fetching staff list:', error);
+        
+        // Fallback: try with a simpler query structure
+        try {
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('user_firm_access')
+            .select(`
+              user_id,
+              user_profiles (
+                id,
+                full_name
+              )
+            `)
+            .eq('firm_id', selectedFirm.id);
+
+          if (fallbackError) {
+            console.error('Fallback query also failed:', fallbackError);
+            return;
+          }
+
+          const staff: StaffMember[] = fallbackData?.map(item => ({
+            id: item.user_profiles?.id || item.user_id,
+            name: item.user_profiles?.full_name || 'Unknown User',
+          })).filter(staff => staff.id && staff.name !== 'Unknown User') || [];
+
+          setStaffList(staff);
+        } catch (fallbackError) {
+          console.error('Error in fallback staff query:', fallbackError);
+        }
+        return;
+      }
+
+      const staff: StaffMember[] = data?.map(item => ({
+        id: item.user_profiles?.id || '',
+        name: item.user_profiles?.full_name || 'Unknown User',
+      })).filter(staff => staff.id && staff.name !== 'Unknown User') || [];
+
+      setStaffList(staff);
+    } catch (error) {
+      console.error('Error in fetchStaffList:', error);
+    }
+  };
+
+  const handleApproval = async (entryId: string, status: 'approved' | 'rejected') => {
+    try {
+      // Remove the manual updated_at setting to let the database trigger handle it
+      const { error } = await supabase
+        .from('transactions')
+        .update({ 
+          status,
+          approved_by: userProfile?.id
+        })
+        .eq('id', entryId);
+
+      if (error) {
+        console.error('Error updating entry status:', error);
+        return;
+      }
+
+      // Update local state
+      setEntries(prev => prev.map(entry => 
+        entry.id === entryId ? { 
+          ...entry, 
+          status
+        } : entry
+      ));
+      
+      console.log(`Day book entry ${entryId} ${status}`);
+    } catch (error) {
+      console.error('Error updating entry status:', error);
+    }
+  };
+
+  const handleEditEntry = (entry: DayBookEntry) => {
+    setEditingEntry(entry);
+    setModalType(entry.type);
+    setShowModal(true);
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    try {
+      setLoading(true);
+      
+      // Delete the transaction
       const { error } = await supabase
         .from('transactions')
         .delete()
-        .eq('id', id);
+        .eq('id', entryId);
+        
+      if (error) {
+        console.error('Error deleting entry:', error);
+        throw error;
+      }
       
-      if (error) throw error;
+      // Update local state
+      setEntries(prev => prev.filter(entry => entry.id !== entryId));
+      setConfirmDelete(null);
       
-      setTransactions(prev => prev.filter(t => t.id !== id));
-    } catch (err) {
-      console.error('Failed to delete transaction:', err);
-      alert('Failed to delete transaction. Please try again.');
+    } catch (error) {
+      console.error('Error deleting entry:', error);
+      alert('Failed to delete entry. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Save transaction (create or update)
-  const handleSaveTransaction = async (txn: Transaction) => {
-    try {
-      let error;
-      
-      if (txn.id) {
-        // Update existing
-        const { error: updateError } = await supabase
-          .from('transactions')
-          .update({
-            amount: txn.amount,
-            party_id: txn.party_id,
-            bill_number: txn.bill_number,
-            payment_method: txn.payment_method
-          })
-          .eq('id', txn.id);
-        
-        error = updateError;
-      } else {
-        // Create new
-        const { error: createError } = await supabase
-          .from('transactions')
-          .insert({
-            transaction_date: txn.transaction_date,
-            amount: txn.amount,
-            type: txn.type,
-            party_id: txn.party_id,
-            firm_id: selectedFirm?.id,
-            status: 'approved',
-            bill_number: txn.bill_number,
-            payment_method: txn.payment_method
-          });
-        
-        error = createError;
-      }
-      
-      if (error) throw error;
-      
-      setShowForm(false);
-      fetchTransactions();
-    } catch (err) {
-      console.error('Failed to save transaction:', err);
-      alert('Failed to save transaction. Please try again.');
+  const openModal = (type: 'sale' | 'collection') => {
+    setModalType(type);
+    setEditingEntry(null);
+    setShowModal(true);
+  };
+
+  const filteredEntries = entries.filter((entry) => {
+    const matchesStatus = filterStatus === 'all' || entry.status === filterStatus;
+    const matchesType = filterType === 'all' || entry.type === filterType;
+    const matchesStaff = filterStaff === 'all' || entry.created_by === filterStaff;
+    return matchesStatus && matchesType && matchesStaff;
+  });
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'approved': return 'text-green-600 bg-green-50';
+      case 'pending': return 'text-yellow-600 bg-yellow-50';
+      case 'rejected': return 'text-red-600 bg-red-50';
+      default: return 'text-gray-600 bg-gray-50';
     }
   };
 
-  // Export to PDF
-  const exportToPDF = () => {
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    
-    // Header
-    doc.setFontSize(18);
-    doc.text('Daybook Report', pageWidth / 2, 15, { align: 'center' });
-    
-    doc.setFontSize(10);
-    doc.text(`Date: ${formatDisplayDate(selectedDate)}`, 15, 25);
-    doc.text(`Firm: ${selectedFirm?.name || 'N/A'}`, 15, 32);
-    
-    // Prepare table data
-    const tableData = filteredTransactions.map(txn => [
-      txn.party?.name || 'N/A',
-      txn.type === 'sale' ? 'Sale' : 'Collection',
-      txn.bill_number || txn.payment_method || 'N/A',
-      format(parseISO(txn.transaction_date), 'HH:mm'),
-      formatCurrency(txn.amount)
-    ]);
-    
-    // Create table
-    autoTable(doc, {
-      startY: 40,
-      head: [['Party', 'Type', 'Reference', 'Time', 'Amount']],
-      body: tableData,
-      headStyles: { 
-        fillColor: [41, 128, 185],
-        textColor: 255,
-        fontStyle: 'bold'
-      },
-      styles: { fontSize: 10 },
-      alternateRowStyles: { fillColor: [245, 245, 245] },
-      margin: { top: 40 },
-      didDrawPage: (data) => {
-        doc.setFontSize(8);
-        doc.setTextColor(100);
-        doc.text(
-          `Generated on: ${new Date().toLocaleString()}`,
-          pageWidth - 15,
-          doc.internal.pageSize.getHeight() - 10,
-          { align: 'right' }
-        );
-      }
-    });
-    
-    doc.save(`daybook_${selectedDate}.pdf`);
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'sale': return <Receipt className="w-4 h-4" />;
+      case 'collection': return <TrendingUp className="w-4 h-4" />;
+      default: return <Receipt className="w-4 h-4" />;
+    }
   };
 
-  // Calculate totals
-  const calculateTotals = () => {
-    return filteredTransactions.reduce((acc, txn) => {
-      if (txn.type === 'sale') {
-        acc.sales += txn.amount;
-      } else {
-        acc.collections += txn.amount;
-      }
-      return acc;
-    }, { sales: 0, collections: 0 });
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'sale': return 'bg-blue-50 text-blue-600';
+      case 'collection': return 'bg-green-50 text-green-600';
+      default: return 'bg-gray-50 text-gray-600';
+    }
   };
 
-  const totals = calculateTotals();
+  const dailyStats = {
+    totalSales: filteredEntries.filter(e => e.type === 'sale' && e.status === 'approved').reduce((sum, e) => sum + e.amount, 0),
+    totalCollections: filteredEntries.filter(e => e.type === 'collection' && e.status === 'approved').reduce((sum, e) => sum + e.amount, 0),
+    pendingSales: filteredEntries.filter(e => e.type === 'sale' && e.status === 'pending').length,
+    pendingCollections: filteredEntries.filter(e => e.type === 'collection' && e.status === 'pending').length,
+    salesCount: filteredEntries.filter(e => e.type === 'sale').length,
+    collectionsCount: filteredEntries.filter(e => e.type === 'collection').length,
+  };
 
-  // Transaction Form Modal
-  const TransactionForm = () => {
-    const [formData, setFormData] = useState(currentTransaction || {} as Transaction);
-    
-    useEffect(() => {
-      if (currentTransaction) {
-        setFormData(currentTransaction);
-      }
-    }, [currentTransaction]);
+  const canApprove = userProfile?.role === 'admin';
+  const canEdit = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
+  const canDelete = userProfile?.role === 'admin';
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      const { name, value } = e.target;
-      setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-      e.preventDefault();
-      handleSaveTransaction(formData);
-    };
-
+  if (loading && entries.length === 0) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl w-full max-w-md overflow-hidden">
-          <div className="p-4 bg-blue-600 text-white flex justify-between items-center">
-            <h3 className="text-lg font-semibold">
-              {formData.id ? 'Edit' : 'New'} {formData.type === 'sale' ? 'Sale' : 'Collection'}
-            </h3>
-            <button onClick={() => setShowForm(false)} className="p-1">
-              <X size={24} />
-            </button>
-          </div>
-          
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Party
-              </label>
-              <select
-                name="party_id"
-                value={formData.party_id}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-md p-2"
-                required
-              >
-                <option value="">Select Party</option>
-                {parties.map(party => (
-                  <option key={party.id} value={party.id}>
-                    {party.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Amount (₹)
-              </label>
-              <input
-                type="number"
-                name="amount"
-                value={formData.amount}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-md p-2"
-                min="1"
-                required
-              />
-            </div>
-            
-            {formData.type === 'sale' ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Bill Number
-                </label>
-                <input
-                  type="text"
-                  name="bill_number"
-                  value={formData.bill_number || ''}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Payment Method
-                </label>
-                <select
-                  name="payment_method"
-                  value={formData.payment_method || ''}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-md p-2"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cheque">Cheque</option>
-                  <option value="upi">UPI</option>
-                </select>
-              </div>
-            )}
-            
-            <div className="flex justify-end gap-3 pt-4">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                {formData.id ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     );
-  };
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <div className="text-red-600 text-center">
+          <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
+          <p className="text-sm">{error}</p>
+        </div>
+        <button 
+          onClick={fetchDayBookEntries}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        {/* Header */}
-        <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">Daybook</h1>
-              <p className="opacity-90">Daily transaction records</p>
-            </div>
-            <div className="mt-4 md:mt-0 flex items-center gap-3">
-              <button
-                onClick={exportToPDF}
-                className="flex items-center gap-2 px-4 py-2 bg-white/20 rounded-md hover:bg-white/30 transition-colors"
-              >
-                <Download size={18} /> Export
-              </button>
-              <button
-                onClick={() => fetchTransactions()}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-white/20 rounded-md hover:bg-white/30 disabled:opacity-50"
-              >
-                <RefreshCw size={18} /> Refresh
-              </button>
-            </div>
+    <div className="space-y-3 sm:space-y-4 lg:space-y-6 max-w-full">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-500 to-blue-500 rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 text-white">
+        <div className="flex flex-col space-y-3 sm:space-y-4">
+          <div>
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold mb-1 sm:mb-2">Day Book</h1>
+            <p className="text-indigo-100 text-xs sm:text-sm lg:text-base">Daily transactions and business activities</p>
           </div>
-        </div>
-
-        {/* Date Navigation */}
-        <div className="p-4 bg-gray-50 border-b flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <button
-              onClick={() => navigateDays(-1)}
-              className="p-2 rounded-full hover:bg-gray-200"
+              onClick={() => openModal('sale')}
+              className="flex items-center justify-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-3 sm:px-4 py-2 rounded-lg transition-colors text-xs sm:text-sm"
             >
-              <ArrowLeft size={20} />
+              <Receipt className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span>Record Sale</span>
             </button>
-            
-            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-md border">
-              <Calendar size={18} className="text-gray-500" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-transparent focus:outline-none"
-              />
-            </div>
-            
             <button
-              onClick={() => navigateDays(1)}
-              className="p-2 rounded-full hover:bg-gray-200"
+              onClick={() => openModal('collection')}
+              className="flex items-center justify-center space-x-2 bg-white bg-opacity-20 hover:bg-opacity-30 px-3 sm:px-4 py-2 rounded-lg transition-colors text-xs sm:text-sm"
             >
-              <ArrowRight size={20} />
-            </button>
-            
-            <button
-              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
-              className="ml-2 px-3 py-1 bg-blue-600 text-white rounded-md text-sm"
-            >
-              Today
+              <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span>Record Collection</span>
             </button>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search transactions..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+        </div>
+      </div>
+
+      {/* Date Selection & Stats */}
+      <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 sm:gap-4 lg:gap-6">
+        {/* Date Picker */}
+        <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
+          <div className="flex items-center space-x-2 sm:space-x-3 mb-3 sm:mb-4">
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
+            <h3 className="font-semibold text-gray-900 text-xs sm:text-sm lg:text-base">Select Date</h3>
+          </div>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-xs sm:text-sm"
+          />
+        </div>
+
+        {/* Daily Stats */}
+        <div className="lg:col-span-5 grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
+          <div className="bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 lg:p-6 shadow-sm border border-gray-200">
+            <div className="text-sm sm:text-lg lg:text-2xl font-bold text-blue-600">{formatCurrency(dailyStats.totalSales)}</div>
+            <div className="text-xs sm:text-sm text-gray-500">Total Sales</div>
+            <div className="text-xs text-gray-400">{dailyStats.salesCount} txns</div>
+          </div>
+          <div className="bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 lg:p-6 shadow-sm border border-gray-200">
+            <div className="text-sm sm:text-lg lg:text-2xl font-bold text-green-600">{formatCurrency(dailyStats.totalCollections)}</div>
+            <div className="text-xs sm:text-sm text-gray-500">Collections</div>
+            <div className="text-xs text-gray-400">{dailyStats.collectionsCount} txns</div>
+          </div>
+          <div className="bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 lg:p-6 shadow-sm border border-gray-200">
+            <div className="text-sm sm:text-lg lg:text-2xl font-bold text-yellow-600">{dailyStats.pendingSales}</div>
+            <div className="text-xs sm:text-sm text-gray-500">Pending Sales</div>
+          </div>
+          <div className="bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 lg:p-6 shadow-sm border border-gray-200">
+            <div className="text-sm sm:text-lg lg:text-2xl font-bold text-orange-600">{dailyStats.pendingCollections}</div>
+            <div className="text-xs sm:text-sm text-gray-500">Pending Collections</div>
+          </div>
+          <div className="bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 lg:p-6 shadow-sm border border-gray-200">
+            <div className="text-sm sm:text-lg lg:text-2xl font-bold text-purple-600">
+              {formatCurrency(dailyStats.totalSales + dailyStats.totalCollections)}
             </div>
-            
-            <div className="flex items-center gap-2">
-              <Filter size={18} className="text-gray-500" />
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as any)}
-                className="border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Types</option>
-                <option value="sale">Sales</option>
-                <option value="collection">Collections</option>
-              </select>
+            <div className="text-xs sm:text-sm text-gray-500">Total Value</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Enhanced Filters */}
+      <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
+        <div className="space-y-3 sm:space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-xs sm:text-sm"
+            >
+              <option value="all">All Types</option>
+              <option value="sale">Sales Only</option>
+              <option value="collection">Collections Only</option>
+            </select>
+
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-xs sm:text-sm"
+            >
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+
+            <select
+              value={filterStaff}
+              onChange={(e) => setFilterStaff(e.target.value)}
+              className="px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-xs sm:text-sm"
+            >
+              <option value="all">All Staff</option>
+              {staffList.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+            <div className="text-xs sm:text-sm text-gray-500">
+              Showing {filteredEntries.length} entries for {new Date(selectedDate).toLocaleDateString()}
+            </div>
+            <div className="text-xs sm:text-sm font-medium text-gray-900">
+              Total: {formatCurrency(filteredEntries.reduce((sum, e) => sum + e.amount, 0))}
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Action Buttons */}
-        <div className="p-4 bg-white border-b flex gap-3">
-          <button
-            onClick={() => handleNewTransaction('sale')}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-          >
-            <Plus size={18} /> New Sale
-          </button>
-          <button
-            onClick={() => handleNewTransaction('collection')}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-          >
-            <Plus size={18} /> New Collection
-          </button>
+      {/* Day Book Entries */}
+      <div className="bg-white rounded-lg sm:rounded-xl shadow-sm border border-gray-200">
+        <div className="p-3 sm:p-4 lg:p-6 border-b border-gray-200">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900">
+            Day Book Entries ({filteredEntries.length})
+          </h3>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-b">
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-            <h3 className="text-gray-600 text-sm font-medium">Total Transactions</h3>
-            <p className="text-2xl font-bold">{filteredTransactions.length}</p>
-          </div>
-          <div className="bg-green-50 p-4 rounded-lg border border-green-100">
-            <h3 className="text-gray-600 text-sm font-medium">Total Sales</h3>
-            <p className="text-2xl font-bold text-green-700">{formatCurrency(totals.sales)}</p>
-          </div>
-          <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-            <h3 className="text-gray-600 text-sm font-medium">Total Collections</h3>
-            <p className="text-2xl font-bold text-purple-700">{formatCurrency(totals.collections)}</p>
-          </div>
-        </div>
-
-        {/* Transactions Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Loading transactions...</p>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <AlertCircle className="text-red-500 mb-3" size={48} />
-              <p className="text-red-600 text-center mb-4">{error}</p>
-              <button 
-                onClick={() => fetchTransactions()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Retry
-              </button>
-            </div>
-          ) : filteredTransactions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <FileText className="text-gray-400 mb-3" size={48} />
-              <p className="text-gray-600 mb-4">No transactions found for this day</p>
-              <button 
-                onClick={() => handleNewTransaction('sale')}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                <Plus size={16} /> Create Transaction
-              </button>
-            </div>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('party')}
-                  >
-                    <div className="flex items-center">
-                      Party
-                      {sortConfig?.key === 'party' && (
-                        sortConfig.direction === 'asc' ? 
-                          <ChevronUp size={14} className="ml-1" /> : 
-                          <ChevronDown size={14} className="ml-1" />
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Reference
-                  </th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
-                    onClick={() => handleSort('amount')}
-                  >
-                    <div className="flex items-center">
-                      Amount
-                      {sortConfig?.key === 'amount' && (
-                        sortConfig.direction === 'asc' ? 
-                          <ChevronUp size={14} className="ml-1" /> : 
-                          <ChevronDown size={14} className="ml-1" />
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTransactions.map((txn) => (
-                  <tr key={txn.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {txn.party?.name || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        txn.type === 'sale' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-purple-100 text-purple-800'
-                      }`}>
-                        {txn.type === 'sale' ? 'Sale' : 'Collection'}
+        <div className="divide-y divide-gray-200">
+          {filteredEntries.map((entry) => (
+            <div key={entry.id} className="p-3 sm:p-4 lg:p-6 hover:bg-gray-50 transition-colors">
+              <div className="space-y-3 lg:space-y-0 lg:flex lg:items-center lg:justify-between">
+                <div className="flex items-start space-x-3 flex-1 min-w-0">
+                  <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center ${getTypeColor(entry.type)} flex-shrink-0`}>
+                    {getTypeIcon(entry.type)}
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-3 mb-1">
+                      <div className="font-medium text-gray-900 text-sm sm:text-base">{entry.party_name}</div>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(entry.type)} self-start`}>
+                        {entry.type}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {txn.type === 'sale' ? txn.bill_number : txn.payment_method}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                      {formatCurrency(txn.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {format(parseISO(txn.transaction_date), 'hh:mm a')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleEditTransaction(txn)}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTransaction(txn.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          <Trash size={18} />
-                        </button>
+                    </div>
+                    <div className="text-xs sm:text-sm text-gray-500 mb-1">
+                      {entry.bill_number && `Bill: ${entry.bill_number}`}
+                      {entry.payment_method && ` - ${entry.payment_method}`}
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-4 text-xs text-gray-400">
+                      <div className="flex items-center space-x-1">
+                        <User className="w-3 h-3" />
+                        <span>{entry.created_by_name}</span>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <div className="flex items-center space-x-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{new Date(entry.created_at).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between lg:justify-end lg:space-x-4">
+                  <div className="text-left lg:text-right">
+                    <div className="font-semibold text-gray-900 text-sm sm:text-base">
+                      {formatCurrency(entry.amount)}
+                    </div>
+                    <div className="text-xs sm:text-sm text-gray-500 capitalize">
+                      {entry.type}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(entry.status)}`}>
+                      {entry.status}
+                    </span>
+
+                    <div className="flex items-center space-x-1">
+                      <button className="p-1.5 sm:p-2 text-gray-400 hover:text-indigo-600 transition-colors">
+                        <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+                      </button>
+                      
+                      {canEdit && (
+                        <button
+                          onClick={() => handleEditEntry(entry)}
+                          className="p-1.5 sm:p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                        >
+                          <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                        </button>
+                      )}
+                      
+                      {canDelete && (
+                        <>
+                          {confirmDelete === entry.id ? (
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="p-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleDeleteEntry(entry.id)}
+                                className="p-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                              >
+                                Confirm
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDelete(entry.id)}
+                              className="p-1.5 sm:p-2 text-gray-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                      
+                      {entry.status === 'pending' && canApprove && (
+                        <>
+                          <button
+                            onClick={() => handleApproval(entry.id, 'rejected')}
+                            className="p-1.5 sm:p-2 text-gray-400 hover:text-red-600 transition-colors"
+                          >
+                            <X className="w-3 h-3 sm:w-4 sm:h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleApproval(entry.id, 'approved')}
+                            className="p-1.5 sm:p-2 text-gray-400 hover:text-green-600 transition-colors"
+                          >
+                            <Check className="w-3 h-3 sm:w-4 sm:h-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {filteredEntries.length === 0 && (
+            <div className="p-6 sm:p-8 lg:p-12 text-center">
+              <Calendar className="w-8 h-8 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
+              <div className="text-gray-500 mb-2 text-sm sm:text-base">No entries found for this date</div>
+              <div className="text-xs sm:text-sm text-gray-400">
+                {filterType !== 'all' || filterStatus !== 'all' || filterStaff !== 'all'
+                  ? 'Try adjusting your filters'
+                  : 'Start by recording your first sale or collection'
+                }
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Transaction Form Modal */}
-      {showForm && <TransactionForm />}
+      {/* Day Book Entry Modal */}
+      <DayBookEntryModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingEntry(null);
+        }}
+        type={modalType}
+        selectedDate={selectedDate}
+        onSuccess={fetchDayBookEntries}
+        editingEntry={editingEntry}
+      />
     </div>
   );
 }
