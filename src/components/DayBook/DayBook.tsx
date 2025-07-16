@@ -36,7 +36,7 @@ export default function DayBook() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
-  const initialDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const initialDate = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
@@ -49,10 +49,11 @@ export default function DayBook() {
 
   useEffect(() => {
     if (selectedFirm) {
+      setSelectedDate(new Date().toISOString().split('T')[0]); // Reset date to today
       fetchDayBookEntries();
       fetchStaffList();
     }
-  }, [selectedFirm, selectedDate]);
+  }, [selectedFirm]);
 
   const fetchDayBookEntries = async () => {
     if (!selectedFirm?.id) return;
