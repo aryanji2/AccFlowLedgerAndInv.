@@ -177,6 +177,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
   };
 
   const handleRedirectToDayBook = (transactionDate) => {
+    console.log(`Redirecting to Day Book for date: ${transactionDate}`); // Debug log
     navigate(`/daybook?date=${transactionDate}`);
   };
 
