@@ -4,6 +4,7 @@ import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import DayBookEntryModal from './DayBookEntryModal';
+import { useSearchParams } from 'react-router-dom';
 
 interface DayBookEntry {
   id: string;
@@ -34,7 +35,9 @@ export default function DayBook() {
   const [entries, setEntries] = useState<DayBookEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [searchParams] = useSearchParams();
+  const initialDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
   const [filterStaff, setFilterStaff] = useState('all');
