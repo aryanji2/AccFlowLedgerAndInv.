@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Users, Plus, Search, Filter, Eye, Edit, MapPin, Download, Calendar,
-  FileText, Trash2, AlertCircle, TrendingUp, TrendingDown, Receipt
+  Users, Plus, Search, MapPin, Calendar,
+  FileText, Trash2, Edit
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,28 @@ import { supabase } from '../../lib/supabase';
 import CreatePartyModal from './CreatePartyModal';
 import LocationGroupModal from './LocationGroupModal';
 import PartyStatementModal from './PartyStatementModal';
+
+// Simple loading and error fallback components
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+  </div>
+);
+
+const ErrorView: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
+  <div className="flex flex-col items-center justify-center h-64 space-y-4">
+    <div className="text-red-600 text-center">
+      <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
+      <p className="text-sm">{message}</p>
+    </div>
+    <button
+      onClick={onRetry}
+      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+    >
+      Retry
+    </button>
+  </div>
+);
 
 interface LocationGroup {
   id: string;
@@ -124,7 +146,7 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     }
   };
 
-  // Search, filters, and computes filtered list
+  // Filters
   const filteredLocationGroups = locationGroups.filter(lg =>
     lg.name.toLowerCase().includes(locationSearchTerm.toLowerCase())
   );
@@ -146,16 +168,15 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     outstanding: parties.reduce((sum, p) => sum + Math.max(p.balance, 0), 0),
   };
 
-  // Formatters
   const formatCurrency = (amt: number) =>
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(Math.abs(amt));
   const getStatusBadge = (days: number, type: 'customer'|'supplier') => {
     if (type === 'customer') {
-      if (days > 60) return <span className="badge-red">Overdue</span>;
-      if (days > 30) return <span className="badge-yellow">High Usage</span>;
-      return <span className="badge-green">Good</span>;
+      if (days > 60) return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-red-600 bg-red-50">Overdue</span>;
+      if (days > 30) return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-yellow-600 bg-yellow-50">High Usage</span>;
+      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-green-600 bg-green-50">Good</span>;
     }
-    return <span className="badge-blue">Supplier</span>;
+    return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-blue-600 bg-blue-50">Supplier</span>;
   };
 
   if (loading && parties.length === 0) return <LoadingSpinner />;
