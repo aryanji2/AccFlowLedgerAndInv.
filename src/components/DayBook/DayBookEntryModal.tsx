@@ -220,6 +220,15 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const today = new Date();
+    const selectedTransactionDate = new Date(formData.date);
+
+    if (selectedTransactionDate > today) {
+      alert('Future dates are not allowed for transactions.');
+      return;
+    }
+
     if (!selectedFirm || (!formData.partyId && !formData.partyName)) {
       alert('Please select or enter a party');
       return;
