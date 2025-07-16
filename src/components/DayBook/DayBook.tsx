@@ -203,9 +203,9 @@ export default function DayBook() {
   };
 
   const handleEditEntry = (entry: DayBookEntry) => {
-    setEditingEntry(entry);
-    setModalType(entry.type);
-    setShowModal(true);
+    setEditingEntry(entry); // Pass the entry to the modal
+    setModalType(entry.type); // Set the modal type based on the entry type
+    setShowModal(true); // Open the modal
   };
 
   const handleDeleteEntry = async (entryId: string) => {
@@ -583,12 +583,12 @@ export default function DayBook() {
         isOpen={showModal}
         onClose={() => {
           setShowModal(false);
-          setEditingEntry(null);
+          setEditingEntry(null); // Clear editing entry on close
         }}
         type={modalType}
         selectedDate={selectedDate}
         onSuccess={fetchDayBookEntries}
-        editingEntry={editingEntry}
+        editingEntry={editingEntry} // Pass the editing entry to the modal
       />
     </div>
   );
