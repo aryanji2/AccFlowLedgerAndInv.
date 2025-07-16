@@ -83,8 +83,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .eq('firm_id', selectedFirm.id)
         .eq('type', 'opening_balance')
         .order('transaction_date', { ascending: true })
-        .limit(1)
-        .headers({ Accept: 'application/json' }); // Add Accept header
+        .limit(1); // Removed .headers()
       if (openingErr) throw openingErr;
 
       const openingBalance = openingTxns?.[0]?.amount || 0;
@@ -100,8 +99,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .neq('type', 'opening_balance')
         .gte('transaction_date', dateRange.from)
         .lte('transaction_date', dateRange.to)
-        .order('transaction_date', { ascending: true })
-        .headers({ Accept: 'application/json' }); // Add Accept header
+        .order('transaction_date', { ascending: true }); // Removed .headers()
       if (error) throw error;
 
       // Build rows & totals
