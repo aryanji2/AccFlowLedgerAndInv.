@@ -88,12 +88,13 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           status,
           bill_number,
           transaction_date,
+          created_at,
           parties (
             name
           )
         `)
         .eq('firm_id', selectedFirm.id)
-        .order('transaction_date', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(10);
       
       if (transactionsError) {
@@ -157,6 +158,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         status: t.status,
         bill_number: t.bill_number,
         transaction_date: t.transaction_date,
+        created_at: t.created_at,
         party_name: t.parties?.name || 'Unknown Party'
       })) || [];
       
@@ -463,7 +465,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                     {transaction.bill_number && ` - ${transaction.bill_number}`}
                   </div>
                   <div className="text-xs text-gray-400">
-                    {format(new Date(transaction.transaction_date), 'dd MMM yyyy, hh:mm a')}
+                    {format(new Date(transaction.created_at), 'dd MMM yyyy, hh:mm a')}
                   </div>
                 </div>
               </div>
