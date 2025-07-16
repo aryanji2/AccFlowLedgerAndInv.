@@ -185,6 +185,20 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     return matchesSearch && matchesLocation && matchesType;
   });
 
+  const filteredStats = {
+    total: filteredParties.length,
+    customers: filteredParties.filter(p => p.type === 'customer').length,
+    suppliers: filteredParties.filter(p => p.type === 'supplier').length,
+    overdue: filteredParties.filter(p => p.type === 'customer' && p.debtor_days > 60).length,
+    outstanding: filteredParties.reduce((sum, p) => {
+      if (p.type === 'customer') {
+        return sum + Math.max(p.balance, 0);
+      } else {
+        return sum + Math.max(p.balance, 0);
+      }
+    }, 0),
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -213,22 +227,6 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
     } else {
       setSelectedPartyForStatement(party);
     }
-  };
-
-  const stats = {
-    total: parties.length,
-    customers: parties.filter(p => p.type === 'customer').length,
-    suppliers: parties.filter(p => p.type === 'supplier').length,
-    overdue: parties.filter(p => p.type === 'customer' && p.debtor_days > 60).length,
-    outstanding: parties.reduce((sum, p) => {
-      if (p.type === 'customer') {
-        // For customers, positive balance means they owe us
-        return sum + Math.max(p.balance, 0);
-      } else {
-        // For suppliers, positive balance means we owe them
-        return sum + Math.max(p.balance, 0);
-      }
-    }, 0),
   };
 
   if (loading && parties.length === 0) {
@@ -293,23 +291,23 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-6">
         <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{stats.total}</div>
+          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{filteredStats.total}</div>
           <div className="text-xs sm:text-sm text-gray-500">Total Parties</div>
         </div>
         <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600">{stats.customers}</div>
+          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600">{filteredStats.customers}</div>
           <div className="text-xs sm:text-sm text-gray-500">Customers</div>
         </div>
         <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-green-600">{stats.suppliers}</div>
+          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-green-600">{filteredStats.suppliers}</div>
           <div className="text-xs sm:text-sm text-gray-500">Suppliers</div>
         </div>
         <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-red-600">{stats.overdue}</div>
+          <div className="text-lg sm:text-xl lg:text-2xl font-bold text-red-600">{filteredStats.overdue}</div>
           <div className="text-xs sm:text-sm text-gray-500">Overdue</div>
         </div>
         <div className="bg-white rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 shadow-sm border border-gray-200">
-          <div className="text-sm sm:text-lg lg:text-2xl font-bold text-purple-600">{formatCurrency(stats.outstanding)}</div>
+          <div className="text-sm sm:text-lg lg:text-2xl font-bold text-purple-600">{formatCurrency(filteredStats.outstanding)}</div>
           <div className="text-xs sm:text-sm text-gray-500">Outstanding</div>
         </div>
       </div>
@@ -337,29 +335,27 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm appearance-none"
                 >
                   <option value="all">All Locations</option>
-                  {filteredLocationGroups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
+                  {locationGroups
+                    .filter(group => group.name.toLowerCase().includes(locationSearchTerm.toLowerCase()))
+                    .map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.name}
+                      </option>
+                    ))}
                 </select>
                 <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
                   <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
                   </svg>
                 </div>
-                
-                {/* Location search bar */}
-                <div className="mt-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search locations..."
-                    value={locationSearchTerm}
-                    onChange={(e) => setLocationSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="Search locations..."
+                  value={locationSearchTerm}
+                  onChange={(e) => setLocationSearchTerm(e.target.value)}
+                  className="absolute top-0 left-0 w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                  style={{ marginTop: '2.5rem' }}
+                />
               </div>
 
               <select
