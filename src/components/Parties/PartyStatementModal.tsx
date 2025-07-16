@@ -5,6 +5,7 @@ import {
 import { useApp } from '../../contexts/AppContext';
 import { supabase } from '../../lib/supabase';
 import jsPDF from 'jspdf';
+import { useNavigate } from 'react-router-dom';
 
 function formatDisplayDate(dateStr: string) {
   const d = new Date(dateStr);
@@ -33,14 +34,13 @@ function formatCurrencyPlain(amount: number) {
 export default function PartyStatementModal({ isOpen, onClose, party }) {
   if (!isOpen || !party?.id) return null;
   const { selectedFirm } = useApp();
+  const navigate = useNavigate();
 
   const todayISO = new Date().toISOString().split('T')[0];
   const [dateRange, setDateRange] = useState({ from: todayISO, to: todayISO });
   const [statement, setStatement] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingTransaction, setEditingTransaction] = useState(null);
-  const [updatedTransaction, setUpdatedTransaction] = useState({});
 
   // 1️⃣ When the modal opens, get the earliest txn date, then fetch statement
   useEffect(() => {
@@ -176,24 +176,8 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
     doc.save(`${party.name.replace(/\s+/g,'_')}_statement.pdf`);
   };
 
-  const handleEditTransaction = (transaction) => {
-    setEditingTransaction(transaction);
-    setUpdatedTransaction(transaction);
-  };
-
-  const handleUpdateTransaction = async () => {
-    try {
-      const { error } = await supabase
-        .from('transactions')
-        .update(updatedTransaction)
-        .eq('id', editingTransaction.id);
-      if (error) throw error;
-
-      setEditingTransaction(null);
-      fetchStatement(); // Refresh the statement after update
-    } catch (err) {
-      console.error('Failed to update transaction:', err);
-    }
+  const handleRedirectToDayBook = (transactionDate) => {
+    navigate(`/daybook?date=${transactionDate}`);
   };
 
   return (
@@ -254,99 +238,18 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
                   <tbody>
                     {statement.transactions.map(r => (
                       <tr key={r.id} className="border-t">
-                        <td className="p-2">
-                          {editingTransaction?.id === r.id ? (
-                            <input
-                              type="date"
-                              value={updatedTransaction.transaction_date}
-                              onChange={(e) =>
-                                setUpdatedTransaction((prev) => ({
-                                  ...prev,
-                                  transaction_date: e.target.value,
-                                }))
-                              }
-                              className="border p-1 rounded"
-                            />
-                          ) : (
-                            formatDisplayDate(r.date)
-                          )}
-                        </td>
-                        <td className="p-2">
-                          {editingTransaction?.id === r.id ? (
-                            <input
-                              type="text"
-                              value={updatedTransaction.description}
-                              onChange={(e) =>
-                                setUpdatedTransaction((prev) => ({
-                                  ...prev,
-                                  description: e.target.value,
-                                }))
-                              }
-                              className="border p-1 rounded"
-                            />
-                          ) : (
-                            r.description
-                          )}
-                        </td>
-                        <td className="p-2 text-right">
-                          {editingTransaction?.id === r.id ? (
-                            <input
-                              type="number"
-                              value={updatedTransaction.debit}
-                              onChange={(e) =>
-                                setUpdatedTransaction((prev) => ({
-                                  ...prev,
-                                  debit: parseFloat(e.target.value),
-                                }))
-                              }
-                              className="border p-1 rounded"
-                            />
-                          ) : (
-                            r.debit ? formatCurrency(r.debit) : ''
-                          )}
-                        </td>
-                        <td className="p-2 text-right">
-                          {editingTransaction?.id === r.id ? (
-                            <input
-                              type="number"
-                              value={updatedTransaction.credit}
-                              onChange={(e) =>
-                                setUpdatedTransaction((prev) => ({
-                                  ...prev,
-                                  credit: parseFloat(e.target.value),
-                                }))
-                              }
-                              className="border p-1 rounded"
-                            />
-                          ) : (
-                            r.credit ? formatCurrency(r.credit) : ''
-                          )}
-                        </td>
+                        <td className="p-2">{formatDisplayDate(r.date)}</td>
+                        <td className="p-2">{r.description}</td>
+                        <td className="p-2 text-right">{r.debit ? formatCurrency(r.debit) : ''}</td>
+                        <td className="p-2 text-right">{r.credit ? formatCurrency(r.credit) : ''}</td>
                         <td className="p-2 text-right">{formatCurrency(r.balance)}</td>
                         <td className="p-2 text-right">
-                          {editingTransaction?.id === r.id ? (
-                            <>
-                              <button
-                                onClick={handleUpdateTransaction}
-                                className="bg-green-600 text-white px-2 py-1 rounded"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingTransaction(null)}
-                                className="bg-gray-600 text-white px-2 py-1 rounded ml-2"
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => handleEditTransaction(r)}
-                              className="bg-blue-600 text-white px-2 py-1 rounded"
-                            >
-                              Edit
-                            </button>
-                          )}
+                          <button
+                            onClick={() => handleRedirectToDayBook(r.date)}
+                            className="bg-blue-600 text-white px-2 py-1 rounded"
+                          >
+                            Edit
+                          </button>
                         </td>
                       </tr>
                     ))}
