@@ -60,13 +60,8 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
   const canDeleteParties = userProfile?.role === 'admin';
   const canManageLocationGroups = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
 
-  useEffect(() => {
-    if (searchQuery) setSearchTerm(searchQuery);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (selectedFirm?.id) fetchData();
-  }, [selectedFirm]);
+  useEffect(() => { if (searchQuery) setSearchTerm(searchQuery); }, [searchQuery]);
+  useEffect(() => { if (selectedFirm?.id) fetchData(); }, [selectedFirm]);
 
   const fetchData = async () => {
     try {
@@ -92,16 +87,14 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
         .order('name');
       if (partiesError) throw partiesError;
 
-      // Enrich parties with real-time balance (deduped transactions)
+      // Enrich with deduped transactions
       const enriched = await Promise.all(
         (partiesData || []).map(async (party: Party) => {
-          // Start with stored opening balance or zero
           let balance = party.balance || 0;
 
-          // Fetch all approved, non-opening_balance transactions
           const { data: txns = [], error: txnError } = await supabase
             .from('transactions')
-            .select('id, type, amount, transaction_date')
+            .select('id, type, amount')
             .eq('firm_id', selectedFirm.id)
             .eq('party_id', party.id)
             .eq('status', 'approved')
@@ -109,19 +102,12 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
             .order('transaction_date', { ascending: true });
           if (txnError) throw txnError;
 
-          // Dedupe by transaction ID
-          const uniqueTxns = Array.from(
-            new Map(txns.map(t => [t.id, t])).values()
-          );
-
-          // Sum up each unique transaction
+          const uniqueTxns = Array.from(new Map(txns.map(t => [t.id, t])).values());
           uniqueTxns.forEach(t => {
             if (party.type === 'customer') {
-              if (t.type === 'sale') balance += t.amount;
-              else balance -= t.amount; // collection, return, etc.
+              balance += (t.type === 'sale' ? t.amount : -t.amount);
             } else {
-              if (t.type === 'purchase') balance += t.amount;
-              else balance -= t.amount; // payment, return, etc.
+              balance += (t.type === 'purchase' ? t.amount : -t.amount);
             }
           });
 
@@ -129,42 +115,52 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
           return { ...party, balance, location_group: locationGroup };
         })
       );
-
       setParties(enriched);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError(error instanceof Error ? error.message : 'Failed to fetch data');
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEditParty = (party: Party) => {
-    setEditingParty(party);
-    setShowCreatePartyModal(true);
+  // Search, filters, and computes filtered list
+  const filteredLocationGroups = locationGroups.filter(lg =>
+    lg.name.toLowerCase().includes(locationSearchTerm.toLowerCase())
+  );
+  const filteredParties = parties.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase())
+      || p.contact_person.toLowerCase().includes(searchTerm.toLowerCase())
+      || p.phone.includes(searchTerm);
+    const matchesLocation = filterLocation === 'all' || p.location_group_id === filterLocation;
+    const matchesType = filterType === 'all' || p.type === filterType;
+    return matchesSearch && matchesLocation && matchesType;
+  });
+
+  // Stats summary
+  const stats = {
+    total: parties.length,
+    customers: parties.filter(p => p.type === 'customer').length,
+    suppliers: parties.filter(p => p.type === 'supplier').length,
+    overdue: parties.filter(p => p.type === 'customer' && p.debtor_days > 60).length,
+    outstanding: parties.reduce((sum, p) => sum + Math.max(p.balance, 0), 0),
   };
 
-  const handleDeleteParty = async (partyId: string) => {
-    try {
-      setLoading(true);
-      const { error } = await supabase
-        .from('parties')
-        .update({ is_active: false })
-        .eq('id', partyId);
-      if (error) throw error;
-      setParties(prev => prev.filter(p => p.id !== partyId));
-      setConfirmDelete(null);
-    } catch (error) {
-      console.error('Error deleting party:', error);
-      alert('Failed to delete party. Please try again.');
-    } finally {
-      setLoading(false);
+  // Formatters
+  const formatCurrency = (amt: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0 }).format(Math.abs(amt));
+  const getStatusBadge = (days: number, type: 'customer'|'supplier') => {
+    if (type === 'customer') {
+      if (days > 60) return <span className="badge-red">Overdue</span>;
+      if (days > 30) return <span className="badge-yellow">High Usage</span>;
+      return <span className="badge-green">Good</span>;
     }
+    return <span className="badge-blue">Supplier</span>;
   };
 
-  // ... rest of component unchanged ...
-
- return (
+  if (loading && parties.length === 0) return <LoadingSpinner />;
+  if (error) return <ErrorView message={error} onRetry={fetchData} />;
+    return (
     <div className="space-y-3 sm:space-y-4 lg:space-y-6 max-w-full">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 text-white">
