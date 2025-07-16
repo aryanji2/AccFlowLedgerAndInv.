@@ -1,7 +1,7 @@
-""import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Users, Plus, Search, MapPin, Calendar,
-  FileText, Trash2, Edit
+  Users, Plus, Search, Filter, Eye, Edit, MapPin, Download, Calendar,
+  FileText, Trash2, AlertCircle, TrendingUp, TrendingDown, Receipt
 } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,27 +9,6 @@ import { supabase } from '../../lib/supabase';
 import CreatePartyModal from './CreatePartyModal';
 import LocationGroupModal from './LocationGroupModal';
 import PartyStatementModal from './PartyStatementModal';
-
-const LoadingSpinner = () => (
-  <div className="flex items-center justify-center h-64">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-  </div>
-);
-
-const ErrorView: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => (
-  <div className="flex flex-col items-center justify-center h-64 space-y-4">
-    <div className="text-red-600 text-center">
-      <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
-      <p className="text-sm">{message}</p>
-    </div>
-    <button
-      onClick={onRetry}
-      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-    >
-      Retry
-    </button>
-  </div>
-);
 
 interface LocationGroup {
   id: string;
@@ -75,17 +54,89 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
   const [selectedPartyForStatement, setSelectedPartyForStatement] = useState<Party | null>(null);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [locationSearchTerm, setLocationSearchTerm] = useState('');
+  const [locationSearchTerm, setLocationSearchTerm] = useState(''); // New state for location search
 
   const canEditParties = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
   const canDeleteParties = userProfile?.role === 'admin';
   const canManageLocationGroups = userProfile?.role === 'admin' || userProfile?.role === 'accountant';
 
-  useEffect(() => { if (searchQuery) setSearchTerm(searchQuery); }, [searchQuery]);
-  useEffect(() => { if (selectedFirm?.id) fetchData(); }, [selectedFirm]);
+  useEffect(() => {
+    if (searchQuery) {
+      setSearchTerm(searchQuery);
+    }
+  }, [searchQuery]);
 
-  const handleViewStatement = (party: Party) => {
-    setSelectedPartyForStatement(party);
+  useEffect(() => {
+    if (selectedFirm?.id) {
+      fetchData();
+    }
+  }, [selectedFirm]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!selectedFirm?.id) {
+        throw new Error('No firm selected');
+      }
+
+      // Fetch location groups
+      const { data: locationGroupsData, error: locationGroupsError } = await supabase
+        .from('location_groups')
+        .select('*')
+        .eq('firm_id', selectedFirm.id)
+        .order('name');
+
+      if (locationGroupsError) throw locationGroupsError;
+      setLocationGroups(locationGroupsData || []);
+
+      // Fetch parties
+      const { data: partiesData, error: partiesError } = await supabase
+        .from('parties')
+        .select('*')
+        .eq('firm_id', selectedFirm.id)
+        .eq('is_active', true)
+        .order('name');
+
+      if (partiesError) throw partiesError;
+
+      // Correct balance logic using all approved transactions
+      const enriched = await Promise.all(
+        (partiesData || []).map(async (party: Party) => {
+          const { data: txns, error: txnError } = await supabase
+            .from('transactions')
+            .select('type, amount, transaction_date')
+            .eq('firm_id', selectedFirm.id)
+            .eq('party_id', party.id)
+            .eq('status', 'approved'); // Include all approved transactions
+
+          if (txnError) throw txnError;
+
+          let balance = 0; // Start with zero balance
+          
+          txns?.forEach(t => {
+            if (party.type === 'customer') {
+              if (t.type === 'sale') balance += t.amount;
+              if (t.type === 'collection') balance -= t.amount;
+            } else { // supplier
+              if (t.type === 'purchase') balance += t.amount;
+              if (t.type === 'payment') balance -= t.amount;
+            }
+          });
+
+          const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
+          return { ...party, balance, location_group: locationGroup };
+        })
+      );
+
+      setParties(enriched);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleEditParty = (party: Party) => {
@@ -94,77 +145,118 @@ export default function Parties({ searchQuery, onPartySelect }: PartiesProps) {
   };
 
   const handleDeleteParty = async (partyId: string) => {
-    const { error } = await supabase
-      .from('parties')
-      .delete()
-      .eq('id', partyId);
-    if (error) {
-      console.error('Failed to delete party:', error);
-    } else {
-      fetchData();
-    }
-  };
-
-  const fetchData = async () => {
     try {
       setLoading(true);
-      setError(null);
-      if (!selectedFirm?.id) throw new Error('No firm selected');
-
-      const { data: locationGroupsData, error: locationGroupsError } = await supabase
-        .from('location_groups')
-        .select('*')
-        .eq('firm_id', selectedFirm.id)
-        .order('name');
-      if (locationGroupsError) throw locationGroupsError;
-      setLocationGroups(locationGroupsData || []);
-
-      const { data: partiesData, error: partiesError } = await supabase
+      
+      const { error } = await supabase
         .from('parties')
-        .select('*')
-        .eq('firm_id', selectedFirm.id)
-        .eq('is_active', true)
-        .order('name');
-      if (partiesError) throw partiesError;
-
-      const enriched = await Promise.all(
-        (partiesData || []).map(async (party: Party) => {
-          let balance = party.balance || 0;
-          const { data: txns = [], error: txnError } = await supabase
-            .from('transactions')
-            .select('id, type, amount')
-            .eq('firm_id', selectedFirm.id)
-            .eq('party_id', party.id)
-            .eq('status', 'approved')
-            .neq('type', 'opening_balance')
-            .order('transaction_date', { ascending: true });
-          if (txnError) throw txnError;
-
-          const uniqueTxns = Array.from(new Map(txns.map(t => [t.id, t])).values());
-          uniqueTxns.forEach(t => {
-            if (party.type === 'customer') {
-              balance += (t.type === 'sale' ? t.amount : -t.amount);
-            } else {
-              balance += (t.type === 'purchase' ? t.amount : -t.amount);
-            }
-          });
-
-          const locationGroup = locationGroupsData?.find(lg => lg.id === party.location_group_id);
-          return { ...party, balance, location_group: locationGroup };
-        })
-      );
-      setParties(enriched);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch data');
+        .update({ is_active: false })
+        .eq('id', partyId);
+        
+      if (error) throw error;
+      
+      setParties(prev => prev.filter(party => party.id !== partyId));
+      setConfirmDelete(null);
+    } catch (error) {
+      console.error('Error deleting party:', error);
+      alert('Failed to delete party. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ... rest of the code remains unchanged ...
+  // Filter location groups based on search term
+  const filteredLocationGroups = locationGroups.filter(group => 
+    group.name.toLowerCase().includes(locationSearchTerm.toLowerCase())
+  );
 
+  const filteredParties = parties.filter((party) => {
+    const matchesSearch =
+      (party.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.contact_person || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (party.phone || '').includes(searchTerm);
+
+    const matchesLocation =
+      filterLocation === 'all' || party.location_group_id === filterLocation;
+      
+    const matchesType =
+      filterType === 'all' || party.type === filterType;
+
+    return matchesSearch && matchesLocation && matchesType;
+  });
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(Math.abs(amount));
+  };
+
+  const getStatusBadge = (debtorDays: number, partyType: 'customer' | 'supplier') => {
+    if (partyType === 'customer') {
+      if (debtorDays > 60) {
+        return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-red-600 bg-red-50">Overdue</span>;
+      } else if (debtorDays > 30) {
+        return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-yellow-600 bg-yellow-50">High Usage</span>;
+      }
+      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-green-600 bg-green-50">Good</span>;
+    } else {
+      return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-blue-600 bg-blue-50">Supplier</span>;
+    }
+  };
+
+  const handleViewStatement = (party: Party) => {
+    if (onPartySelect) {
+      onPartySelect(party);
+    } else {
+      setSelectedPartyForStatement(party);
+    }
+  };
+
+  const stats = {
+    total: parties.length,
+    customers: parties.filter(p => p.type === 'customer').length,
+    suppliers: parties.filter(p => p.type === 'supplier').length,
+    overdue: parties.filter(p => p.type === 'customer' && p.debtor_days > 60).length,
+    outstanding: parties.reduce((sum, p) => {
+      if (p.type === 'customer') {
+        // For customers, positive balance means they owe us
+        return sum + Math.max(p.balance, 0);
+      } else {
+        // For suppliers, positive balance means we owe them
+        return sum + Math.max(p.balance, 0);
+      }
+    }, 0),
+  };
+
+  if (loading && parties.length === 0) {
     return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <div className="text-red-600 text-center">
+          <h3 className="text-lg font-semibold mb-2">Error Loading Data</h3>
+          <p className="text-sm">{error}</p>
+        </div>
+        <button 
+          onClick={fetchData}
+          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
     <div className="space-y-3 sm:space-y-4 lg:space-y-6 max-w-full">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 rounded-lg sm:rounded-xl p-3 sm:p-4 lg:p-6 text-white">
