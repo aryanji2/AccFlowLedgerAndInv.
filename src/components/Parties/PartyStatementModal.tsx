@@ -177,8 +177,9 @@ import React, { useState, useEffect } from 'react';
       doc.save(`${party.name.replace(/\s+/g,'_')}_statement.pdf`);
     };
 
-    const handleRedirectToDayBook = (transactionDate) => {
-      navigate(`/daybook?date=${transactionDate}`);
+    const handleRedirectToDayBook = (transaction) => {
+      const formType = transaction.type === 'sale' ? 'edit-sale' : 'edit-collection';
+      navigate(`/daybook?form=${formType}&id=${transaction.id}`);
       onClose(); // Optional: close the modal after redirecting
     };
 
@@ -247,7 +248,7 @@ import React, { useState, useEffect } from 'react';
                           <td className="p-2 text-right">{formatCurrency(r.balance)}</td>
                           <td className="p-2 text-right">
                             <button
-                              onClick={() => handleRedirectToDayBook(r.date)}
+                              onClick={() => handleRedirectToDayBook(r)}
                               className="bg-blue-600 text-white px-2 py-1 rounded"
                             >
                               Edit
