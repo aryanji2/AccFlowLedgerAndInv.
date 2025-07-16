@@ -83,8 +83,10 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .eq('firm_id', selectedFirm.id)
         .eq('type', 'opening_balance')
         .order('transaction_date', { ascending: true })
-        .limit(1);
+        .limit(1)
+        .headers({ Accept: 'application/json' }); // Add Accept header
       if (openingErr) throw openingErr;
+
       const openingBalance = openingTxns?.[0]?.amount || 0;
       const openingDate = openingTxns?.[0]?.transaction_date?.split('T')[0] || dateRange.from;
 
@@ -98,7 +100,8 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         .neq('type', 'opening_balance')
         .gte('transaction_date', dateRange.from)
         .lte('transaction_date', dateRange.to)
-        .order('transaction_date', { ascending: true });
+        .order('transaction_date', { ascending: true })
+        .headers({ Accept: 'application/json' }); // Add Accept header
       if (error) throw error;
 
       // Build rows & totals
@@ -131,7 +134,7 @@ export default function PartyStatementModal({ isOpen, onClose, party }) {
         summary: { openingBalance, totalDr, totalCr, closingBalance: running }
       });
     } catch (err) {
-      console.error(err);
+      console.error('Supabase request failed', err);
       setError('Failed to load statement.');
     } finally {
       setLoading(false);
