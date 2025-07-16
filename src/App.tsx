@@ -16,7 +16,7 @@ import Approvals from './components/Approvals/Approvals';
 import FirmManagement from './components/Firms/FirmManagement';
 import UserManagement from './components/Users/UserManagement';
 import TransactionList from './components/Transactions/TransactionList'; // ✅ make sure this exists
-
+import { BrowserRouter } from 'react-router-dom';
 function AppContent() {
   const { user, userProfile, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -118,11 +118,13 @@ function AppContent() {
 
 function App() {
   return (
+    <BrowserRouter>
     <AuthProvider>
       <AppProvider>
         <AppContent />
       </AppProvider>
     </AuthProvider>
+      </BrowserRouter>
   );
 }
 
