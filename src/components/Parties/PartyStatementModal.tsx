@@ -179,8 +179,8 @@ import React, { useState, useEffect } from 'react';
 
     const handleRedirectToDayBook = (transaction) => {
       const formType = transaction.type === 'sale' ? 'edit-sale' : 'edit-collection';
-      navigate(`/daybook?form=${formType}&id=${transaction.id}`);
-      onClose(); // Optional: close the modal after redirecting
+      navigate(`/daybook?form=${formType}&id=${transaction.id}`); // Pass the transaction ID and form type
+      onClose(); // Close the modal after redirecting
     };
 
     return (
