@@ -20,10 +20,16 @@ export default function TransactionList() {
     if (selectedFirm) fetchTransactions();
   }, [selectedFirm]);
 
+  // ✅ Improved back button behavior
   useEffect(() => {
     const handleBackButton = (event: PopStateEvent) => {
+      // If history length is more than 1, let browser go back normally
+      if (window.history.length > 1) {
+        return;
+      }
+      // Otherwise, go to dashboard instead of exiting app
       event.preventDefault();
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     };
 
     window.addEventListener("popstate", handleBackButton);
