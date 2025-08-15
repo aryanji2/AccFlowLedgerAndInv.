@@ -5,6 +5,7 @@ import { useApp } from "../../contexts/AppContext";
 import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useNavigate } from "react-router-dom";
 
 export default function TransactionList() {
   const { selectedFirm } = useApp();
@@ -13,10 +14,23 @@ export default function TransactionList() {
   const [filterType, setFilterType] = useState("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (selectedFirm) fetchTransactions();
   }, [selectedFirm]);
+
+  useEffect(() => {
+    const handleBackButton = (event: PopStateEvent) => {
+      event.preventDefault();
+      navigate("/dashboard");
+    };
+
+    window.addEventListener("popstate", handleBackButton);
+    return () => {
+      window.removeEventListener("popstate", handleBackButton);
+    };
+  }, [navigate]);
 
   const fetchTransactions = async () => {
     setLoading(true);
