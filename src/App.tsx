@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider } from './contexts/AppContext';
 import Login from './components/Auth/Login';
@@ -16,7 +16,37 @@ import Approvals from './components/Approvals/Approvals';
 import FirmManagement from './components/Firms/FirmManagement';
 import UserManagement from './components/Users/UserManagement';
 import TransactionList from './components/Transactions/TransactionList'; // ✅ make sure this exists
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
+
+function BackButtonHandler() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    // Push dummy state if there’s no prior history
+    if (window.history.length <= 1) {
+      window.history.pushState({ firstPage: location.pathname }, "");
+    }
+
+    const handleBackButton = (event: PopStateEvent) => {
+      const state = window.history.state;
+
+      // If it's the first page (no history), go to dashboard instead
+      if (state?.firstPage) {
+        event.preventDefault();
+        navigate("/dashboard", { replace: true });
+      }
+    };
+
+    window.addEventListener("popstate", handleBackButton);
+    return () => {
+      window.removeEventListener("popstate", handleBackButton);
+    };
+  }, [navigate, location.pathname]);
+
+  return null; // This component only handles logic
+}
+
 function AppContent() {
   const { user, userProfile, loading } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -81,6 +111,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <BackButtonHandler /> {/* Added global back button handler */}
       <Header 
         onGlobalSearch={handleGlobalSearch} 
         onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -119,12 +150,12 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-    <AuthProvider>
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
-    </AuthProvider>
-      </BrowserRouter>
+      <AuthProvider>
+        <AppProvider>
+          <AppContent />
+        </AppProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 
