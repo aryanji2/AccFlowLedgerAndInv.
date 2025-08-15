@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider } from './contexts/AppContext';
 import Login from './components/Auth/Login';
@@ -15,43 +16,16 @@ import Reports from './components/Reports/Reports';
 import Approvals from './components/Approvals/Approvals';
 import FirmManagement from './components/Firms/FirmManagement';
 import UserManagement from './components/Users/UserManagement';
-import TransactionList from './components/Transactions/TransactionList'; // ✅ make sure this exists
-import { BrowserRouter, useNavigate, useLocation } from 'react-router-dom';
+import TransactionList from './components/Transactions/TransactionList';
 
-function BackButtonHandler() {
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  useEffect(() => {
-    // Push dummy state if there’s no prior history
-    if (window.history.length <= 1) {
-      window.history.pushState({ firstPage: location.pathname }, "");
-    }
-
-    const handleBackButton = (event: PopStateEvent) => {
-      const state = window.history.state;
-
-      // If it's the first page (no history), go to dashboard instead
-      if (state?.firstPage) {
-        event.preventDefault();
-        navigate("/dashboard", { replace: true });
-      }
-    };
-
-    window.addEventListener("popstate", handleBackButton);
-    return () => {
-      window.removeEventListener("popstate", handleBackButton);
-    };
-  }, [navigate, location.pathname]);
-
-  return null; // This component only handles logic
-}
+// ❌ The BackButtonHandler component is no longer necessary and has been removed.
+// React Router handles this natively.
 
 function AppContent() {
   const { user, userProfile, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const navigate = useNavigate(); // Hook for programmatic navigation
 
   if (loading) {
     return (
@@ -71,47 +45,13 @@ function AppContent() {
   const handleGlobalSearch = (query: string) => {
     setGlobalSearchQuery(query);
     if (query.trim()) {
-      setActiveTab('parties');
-    }
-  };
-
-  const handleNavigation = (tab: string) => {
-    setActiveTab(tab);
-    setIsMobileMenuOpen(false);
-  };
-
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard onNavigate={handleNavigation} />;
-      case 'daybook':
-        return <DayBook />;
-      case 'transactions':
-        return <TransactionList />; // ✅ Added this
-      case 'parties':
-        return <Parties searchQuery={globalSearchQuery} />;
-      case 'orders':
-        return <Orders />;
-      case 'cheques':
-        return <ChequeManagement />;
-      case 'bills':
-        return <BillsOCR />;
-      case 'reports':
-        return <Reports />;
-      case 'approvals':
-        return <Approvals />;
-      case 'firms':
-        return <FirmManagement />;
-      case 'users':
-        return <UserManagement />;
-      default:
-        return <Dashboard onNavigate={handleNavigation} />;
+      // ✅ Navigate to a URL instead of setting local state
+      navigate('/parties');
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <BackButtonHandler /> {/* Added global back button handler */}
       <Header 
         onGlobalSearch={handleGlobalSearch} 
         onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -120,19 +60,34 @@ function AppContent() {
       
       <div className="flex">
         <div className="hidden lg:block">
-          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+          {/* ✅ Sidebar no longer needs activeTab or setActiveTab props */}
+          <Sidebar />
         </div>
         
         <MobileNav 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab}
           isOpen={isMobileMenuOpen}
           onClose={() => setIsMobileMenuOpen(false)}
         />
         
         <main className="flex-1 min-w-0">
           <div className="p-3 sm:p-4 lg:p-6">
-            {renderContent()}
+            {/* ✅ Replaced the state-based switch with declarative routing */}
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard onNavigate={(path) => navigate(path)} />} />
+              <Route path="/daybook" element={<DayBook />} />
+              <Route path="/transactions" element={<TransactionList />} />
+              <Route path="/parties" element={<Parties searchQuery={globalSearchQuery} />} />
+              <Route path="/orders" element={<Orders />} />
+              <Route path="/cheques" element={<ChequeManagement />} />
+              <Route path="/bills" element={<BillsOCR />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/approvals" element={<Approvals />} />
+              <Route path="/firms" element={<FirmManagement />} />
+              <Route path="/users" element={<UserManagement />} />
+              {/* Fallback route for unmatched paths */}
+              <Route path="*" element={<h1>404: Page Not Found</h1>} />
+            </Routes>
           </div>
         </main>
       </div>
