@@ -1,4 +1,5 @@
 import React from 'react';
+import { NavLink } from 'react-router-dom'; // ✅ Import NavLink
 import { 
   LayoutDashboard, 
   BookOpen,
@@ -10,42 +11,36 @@ import {
   UserCheck,
   Package,
   FileText,
-  ShoppingCart,
   X
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
+// ✅ Props are simplified: activeTab and setActiveTab are removed
 interface MobileNavProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: MobileNavProps) {
+export default function MobileNav({ isOpen, onClose }: MobileNavProps) {
   const { userProfile } = useAuth();
 
-  // Define menu items based on user role
+  // This logic for role-based menus is great and remains unchanged
   const getMenuItems = () => {
     const isFieldStaff = userProfile?.role === 'field_staff';
 
-    // Base menu items for all users
     const baseItems = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'daybook', label: 'Day Book', icon: BookOpen },
       { id: 'parties', label: 'Parties', icon: Users },
-      // ✅ Hide Cheque Management for field_staff
       !isFieldStaff && { id: 'cheques', label: 'Cheque Management', icon: CreditCard },
       { id: 'orders', label: 'Orders & Inventory', icon: Package },
       { id: 'bills', label: 'Bills & OCR', icon: FileText },
-    ].filter(Boolean); // remove falsy entries
+    ].filter(Boolean); 
 
-    // Items for admin and accountant
     const adminAccountantItems = [
       { id: 'reports', label: 'Reports', icon: BarChart3 },
     ];
 
-    // Items only for admin
     const adminOnlyItems = [
       { id: 'approvals', label: 'Approvals', icon: CheckCircle },
       { id: 'firms', label: 'Firm Management', icon: Building2 },
@@ -67,16 +62,11 @@ export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: 
 
   const menuItems = getMenuItems();
 
-  const handleItemClick = (itemId: string) => {
-    setActiveTab(itemId);
-    onClose();
-  };
-
   return (
     <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:hidden flex flex-col ${
       isOpen ? 'translate-x-0' : '-translate-x-full'
     }`}>
-      {/* Header */}
+      {/* Header and User Profile sections remain unchanged */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
@@ -92,7 +82,6 @@ export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: 
         </button>
       </div>
 
-      {/* User Profile */}
       <div className="p-4 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
@@ -111,25 +100,27 @@ export default function MobileNav({ activeTab, setActiveTab, isOpen, onClose }: 
         </div>
       </div>
 
-      {/* Navigation - Scrollable */}
+      {/* ✅ Navigation updated to use NavLink */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto min-h-0">
         {menuItems.map((item) => {
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
+          
           return (
-            <button
+            <NavLink
               key={item.id}
-              onClick={() => handleItemClick(item.id)}
-              className={`w-full flex items-center space-x-3 px-3 py-3 rounded-lg text-left transition-colors ${
-                isActive
-                  ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-500'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
+              to={`/${item.id}`} // The URL path
+              onClick={onClose}  // Close the menu on navigation
+              className={({ isActive }) => // Function to determine classes based on active state
+                `w-full flex items-center space-x-3 px-3 py-3 rounded-lg text-left transition-colors ${
+                  isActive
+                    ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-500'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`
+              }
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               <span className="font-medium text-sm">{item.label}</span>
-            </button>
+            </NavLink>
           );
         })}
       </nav>
