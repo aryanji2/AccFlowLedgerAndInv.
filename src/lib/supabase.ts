@@ -1,23 +1,46 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Get environment variables with fallbacks
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+
+const normalizeSupabaseUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return value;
+  }
+};
+
+const supabaseUrl = normalizeSupabaseUrl(rawSupabaseUrl);
 
 // Validate Supabase configuration
 export const isValidSupabaseConfig = () => {
-  return supabaseUrl && 
-         supabaseAnonKey && 
-         supabaseUrl !== 'https://placeholder.supabase.co' &&
-         supabaseUrl !== 'https://your-project-id.supabase.co' &&
-         supabaseAnonKey !== 'placeholder-key' &&
-         supabaseAnonKey !== 'your-anon-key-here' &&
-         !supabaseUrl.includes('placeholder') &&
-         !supabaseUrl.includes('your-project-id') &&
-         !supabaseAnonKey.includes('placeholder') &&
-         !supabaseAnonKey.includes('your-anon-key') &&
-         supabaseUrl.startsWith('https://') &&
-         supabaseUrl.includes('.supabase.co');
+  if (
+    !supabaseUrl ||
+    !supabaseAnonKey ||
+    supabaseUrl === 'https://placeholder.supabase.co' ||
+    supabaseUrl === 'https://your-project-id.supabase.co' ||
+    supabaseAnonKey === 'placeholder-key' ||
+    supabaseAnonKey === 'your-anon-key-here' ||
+    supabaseUrl.includes('placeholder') ||
+    supabaseUrl.includes('your-project-id') ||
+    supabaseAnonKey.includes('placeholder') ||
+    supabaseAnonKey.includes('your-anon-key') ||
+    !supabaseUrl.startsWith('https://') ||
+    !supabaseUrl.includes('.supabase.co')
+  ) {
+    return false;
+  }
+
+  try {
+    const url = new URL(supabaseUrl);
+    // Supabase project URL should be origin only (no /rest/v1 etc.)
+    return url.pathname === '/' && url.hostname.endsWith('.supabase.co');
+  } catch {
+    return false;
+  }
 };
 
 // Create client with proper error handling
