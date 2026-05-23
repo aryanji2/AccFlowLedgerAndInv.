@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 interface Party {
   id: string;
   name: string;
+  location_groups_name?: string;
   contact_person: string;
   phone: string;
   balance: number;
@@ -98,18 +99,58 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
     }));
   }, [selectedDate]);
 
-  useEffect(() => {
-    if (searchTerm) {
-      const filtered = parties.filter(party => 
-        (party.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (party.contact_person || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (party.phone || '').includes(searchTerm)
-      );
-      setFilteredParties(filtered);
-    } else {
-      setFilteredParties(parties);
+useEffect(() => {
+  if (!searchTerm.trim()) {
+    setFilteredParties(parties);
+    return;
+  }
+
+  const normalize = (str: string) =>
+    str
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/ph/g, 'f')
+      .replace(/v/g, 'w');
+
+  const term = normalize(searchTerm);
+
+  const similarityScore = (a: string, b: string) => {
+    let matches = 0;
+
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] === b[i]) {
+        matches += 2; // same position = higher score
+      } else if (b.includes(a[i])) {
+        matches += 1; // alphabet exists somewhere
+      }
     }
-  }, [searchTerm, parties]);
+
+    return matches;
+  };
+
+  const filtered = parties
+    .map((party) => {
+      const name = normalize(party.name || '');
+      const location = normalize(party.location_groups_name || '');
+
+      let score = similarityScore(term, name);
+
+      // extra priority for partial match
+      if (name.includes(term)) score += 20;
+
+      // location search
+      if (location.includes(term)) score += 5;
+
+      return {
+        ...party,
+        score,
+      };
+    })
+    .filter((party) => party.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  setFilteredParties(filtered);
+}, [searchTerm, parties]);
   
   // Effect to handle clicking outside the search dropdown
   useEffect(() => {
@@ -125,39 +166,46 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
   }, []);
 
   const fetchParties = async () => {
-    if (!selectedFirm) return;
-    
-    try {
-      setFetchingParties(true);
-      
-      // Fetch parties from Supabase
-      const { data, error } = await supabase
-        .from('parties')
-        .select('*')
-        .eq('firm_id', selectedFirm.id)
-        .eq('is_active', true);
-      
-      if (error) {
-        console.error('Error fetching parties:', error);
-        // Fallback to mock data
-        useMockParties();
-        return;
-      }
-      
-      if (data && data.length > 0) {
-        setParties(data);
-        setFilteredParties(data);
-      } else {
-        // No parties found, use mock data
-        useMockParties();
-      }
-    } catch (error) {
-      console.error('Error in fetchParties:', error);
+  if (!selectedFirm) return;
+
+  try {
+    setFetchingParties(true);
+
+    const { data, error } = await supabase
+      .from('parties')
+      .select(`
+        *,
+        location_groups (
+          name
+        )
+      `)
+      .eq('firm_id', selectedFirm.id)
+      .eq('is_active', true);
+
+    if (error) {
+      console.error('Error fetching parties:', error);
       useMockParties();
-    } finally {
-      setFetchingParties(false);
+      return;
     }
-  };
+
+    if (data && data.length > 0) {
+      const formattedData = data.map((party: any) => ({
+        ...party,
+        location_groups_name: party.location_groups?.name || '',
+      }));
+
+      setParties(formattedData);
+      setFilteredParties(formattedData);
+    } else {
+      useMockParties();
+    }
+  } catch (error) {
+    console.error('Error in fetchParties:', error);
+    useMockParties();
+  } finally {
+    setFetchingParties(false);
+  }
+};
   
   const useMockParties = () => {
     // Mock parties data as fallback
@@ -604,7 +652,7 @@ export default function DayBookEntryModal({ isOpen, onClose, type, selectedDate,
                         >
                           <div className="font-medium text-gray-900">{party.name}</div>
                           <div className="text-sm text-gray-500">
-                            {party.contact_person} • {party.phone}
+                            {party.location_groups_name ||  ''} • {party.phone}
                           </div>
                         </button>
                       ))
